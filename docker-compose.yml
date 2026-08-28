@@ -15,7 +15,7 @@ services:
     image: jobseeker:1.0
     container_name: jobseeker
     restart: unless-stopped
-    env_file: stack.env
+    env_file: .env
     environment:
       # Se la password e' vuota il contenitore si rifiuta di partire, invece
       # di restare aperto a chiunque conosca l'indirizzo.
