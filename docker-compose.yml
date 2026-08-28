@@ -55,7 +55,7 @@ services:
       # macchina, non internet. Scrivere "8000:8000" la pubblicherebbe su tutte
       # le interfacce, e l'applicazione si troverebbe esposta in chiaro,
       # scavalcando il proxy e il suo certificato.
-      - "127.0.0.1:8050:8050"
+      - "8050:8000"
 
   #caddy:
     #image: caddy:2-alpine
