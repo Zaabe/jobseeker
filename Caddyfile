@@ -1,0 +1,38 @@
+# Il dominio arriva dal file .env (voce DOMINIO). Caddy chiede il certificato
+# a Let's Encrypt da solo, al primo avvio, e lo rinnova senza che tu debba
+# fare nulla: perche' funzioni il dominio deve gia' puntare a questo server e
+# le porte 80 e 443 devono essere raggiungibili da internet.
+{$DOMINIO} {
+	encode zstd gzip
+
+	# L'autenticazione la fa l'applicazione, non Caddy: qui passa tutto.
+	reverse_proxy jobseeker:8000
+
+	# Il curriculum e lo storico delle candidature non devono finire negli
+	# indici dei motori di ricerca ne' essere incorniciati da altri siti.
+	header {
+		X-Robots-Tag "noindex, nofollow"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "same-origin"
+		-Server
+	}
+
+	log {
+		output file /data/accessi.log {
+			roll_size 10MiB
+			roll_keep 5
+		}
+	}
+}
+
+# --- Se non hai ancora un dominio -------------------------------------------
+# Commenta il blocco qui sopra e togli il commento a questo, poi raggiungi il
+# server su http://INDIRIZZO-IP. Attenzione: senza HTTPS la password viaggia
+# in chiaro e le notifiche del browser non funzionano. Va bene per provare,
+# non per l'uso quotidiano.
+#
+# :80 {
+# 	encode zstd gzip
+# 	reverse_proxy jobseeker:8000
+# }

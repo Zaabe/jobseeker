@@ -1,0 +1,16 @@
+# Il contesto di build deve contenere solo il codice: i dati arrivano dal
+# volume, e le credenziali dal file .env letto a runtime.
+.venv/
+__pycache__/
+**/__pycache__/
+*.pyc
+.env
+.env.backup*
+data/
+NewDesign/
+app/static_old/
+.git/
+.gitignore
+*.zip
+Avvia JobSeeker.bat
+run.py

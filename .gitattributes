@@ -1,0 +1,21 @@
+# Nel repository i file di testo stanno con fine riga LF, e cosi' vengono
+# estratti anche su Windows.
+* text=auto eol=lf
+
+# entrypoint.sh e' il punto critico: con fine riga CRLF il kernel legge
+# "#!/bin/sh\r" come nome dell'interprete, non lo trova, e il contenitore
+# muore con un "no such file or directory" che parla di un file esistente.
+*.sh text eol=lf
+Dockerfile text eol=lf
+Caddyfile text eol=lf
+
+# I file per Windows restano CRLF.
+*.bat text eol=crlf
+
+# Binari: nessuna conversione.
+*.png binary
+*.jpg binary
+*.pdf binary
+*.ico binary
+*.zip binary
+*.db binary

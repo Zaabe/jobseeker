@@ -1,0 +1,34 @@
+# --- Dati personali: non devono MAI finire nella cronologia -----------------
+# La cartella `data` contiene il database con il testo del curriculum, lo
+# storico delle candidature e le note, piu' i file caricati. Una volta
+# committati resterebbero nella cronologia anche dopo averli cancellati.
+# `data/*` invece di `data/`: escludendo la cartella intera git non ci entra
+# nemmeno, e la riga successiva non avrebbe effetto.
+data/*
+!data/.gitkeep
+
+# --- Credenziali -----------------------------------------------------------
+.env
+.env.backup*
+*.key
+*.pem
+
+# --- Ambiente e cache ------------------------------------------------------
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# --- Sistema ---------------------------------------------------------------
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# --- Artefatti -------------------------------------------------------------
+*.zip
+*.tar.gz
+caddy-data/
+caddy-config/
+accessi.log

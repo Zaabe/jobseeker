@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="it" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#f5f5f7">
+<title>JobSeeker</title>
+<link rel="manifest" href="/manifest.json">
+<link rel="icon" href="/static/icons/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/static/icons/icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Lexend:wght@300;400;500;600;700&display=swap">
+<link rel="stylesheet" href="/static/style.css">
+<script>
+  /* Il tema si applica prima del primo disegno, così non si vede il lampo bianco. */
+  (function () {
+    try {
+      var s = localStorage.getItem("jobseeker-theme");
+      var dark = s ? s === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
+      document.documentElement.dataset.theme = dark ? "dark" : "light";
+    } catch (e) {}
+  })();
+</script>
+</head>
+<body>
+
+<div class="app" id="app">
+
+  <aside class="sidebar">
+    <div class="brand">
+      <span class="brand-mark">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 8h18v11a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1zM8 8V6a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+        </svg>
+      </span>
+      <span class="brand-name label-only">JobSeeker</span>
+    </div>
+
+    <div class="cycle label-only" id="cycle" title="Prossimo controllo automatico">
+      <span class="dot" id="pulse"></span>
+      <span id="cycle-text">Avvio…</span>
+    </div>
+
+    <nav class="nav" id="nav"></nav>
+
+    <div class="sidebar-foot">
+      <div class="seg lang label-only" id="lang-seg">
+        <button type="button" data-lang="it">IT</button>
+        <button type="button" data-lang="en">EN</button>
+      </div>
+      <button class="me" type="button" id="me">
+        <span class="avatar" id="me-initials">—</span>
+        <span class="who label-only">
+          <b id="me-name">Nessun profilo</b>
+          <span id="me-sub">Carica un curriculum</span>
+        </span>
+      </button>
+    </div>
+  </aside>
+
+  <main class="main" id="main">
+    <header class="topbar">
+      <div class="topbar-row">
+        <button class="icon-btn flush" type="button" id="btn-sidebar" title="Comprimi la barra laterale">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5.5h16v13H4zM10 5.5v13"></path></svg>
+        </button>
+        <div class="topbar-title">
+          <h1 id="page-title">Offerte</h1>
+          <p id="page-sub"></p>
+        </div>
+        <div class="topbar-actions">
+          <button class="icon-btn" type="button" id="btn-theme" title="Cambia tema">
+            <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path id="theme-path" d=""></path></svg>
+          </button>
+          <button class="icon-btn" type="button" id="btn-bell" title="Notifiche">
+            <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a5.5 5.5 0 0 0-5.5 5.5v3.2L5 15.5h14l-1.5-3.8V8.5A5.5 5.5 0 0 0 12 3ZM10 18.5a2 2 0 0 0 4 0"></path></svg>
+            <span class="badge" id="bell-count" hidden>0</span>
+          </button>
+          <button class="btn primary" type="button" id="btn-run">
+            <span class="spin" hidden></span><span id="run-label">Controlla ora</span>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <div class="view-wrap" id="view"></div>
+  </main>
+</div>
+
+<div id="overlay"></div>
+<div class="toasts" id="toasts"></div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,50 @@
+# Avvio:  docker compose up -d
+#
+# Due contenitori. `jobseeker` e' l'applicazione e non espone nessuna porta
+# verso l'esterno: ci si arriva solo passando da `caddy`, che si occupa di
+# HTTPS. Il certificato lo prende e lo rinnova da solo da Let's Encrypt.
+#
+# HTTPS non e' un vezzo: l'accesso all'applicazione usa HTTP Basic, che manda
+# utente e password in chiaro (base64 non e' cifratura). Senza TLS chiunque
+# stia sulla rete di mezzo le legge. In piu' le notifiche del browser e
+# l'installazione come app funzionano solo su https.
+
+services:
+  jobseeker:
+    build: .
+    image: jobseeker:1.0
+    container_name: jobseeker
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      # Se la password e' vuota il contenitore si rifiuta di partire, invece
+      # di restare aperto a chiunque conosca l'indirizzo.
+      JOBSEEKER_REQUIRE_AUTH: "true"
+    volumes:
+      # Database, curriculum caricati e allegati. E' l'unica cosa da salvare.
+      - ./data:/app/data
+    expose:
+      - "8000"
+    networks: [interna]
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: jobseeker-caddy
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data      # certificati: se lo perdi, li richiede da capo
+      - caddy-config:/config
+    depends_on: [jobseeker]
+    networks: [interna]
+
+networks:
+  interna:
+
+volumes:
+  caddy-data:
+  caddy-config:
