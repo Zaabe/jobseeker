@@ -91,6 +91,61 @@ inserisci utente e password.
 
 ---
 
+## 4-bis. Con Portainer
+
+Portainer non usa il file `.env`: le variabili si scrivono nella sezione
+**Environment variables** della stack, ed e' da li' che compose le legge.
+
+1. **Stacks → Add stack → Repository**, e indica l'URL del repository git.
+   Deve essere un deploy *da repository*, non un compose incollato
+   nell'editor: la stack ha bisogno anche di `Dockerfile` e `Caddyfile`, che
+   nell'editor non ci sarebbero.
+2. **Compose path**: `docker-compose.yml`
+3. In **Environment variables** aggiungi almeno queste tre:
+
+   | name | value |
+   |---|---|
+   | `JOBSEEKER_USER` | il nome utente per entrare |
+   | `JOBSEEKER_PASSWORD` | la password |
+   | `DOMINIO` | il dominio, senza `https://` |
+
+   piu' `ADZUNA_APP_ID`, `ADZUNA_APP_KEY`, `GEMINI_API_KEY`,
+   `TELEGRAM_TOKEN`, `TELEGRAM_CHAT_ID` se li usi. Le voci SMTP servono solo
+   per le notifiche via email: lasciale fuori se usi Telegram.
+
+4. **Deploy the stack**.
+
+Se il deploy si ferma su `env file ... not found`, la stack sta ancora usando
+una versione del compose con `env_file`: aggiorna il repository e ridistribuisci.
+
+### Portare il database esistente
+
+Con Portainer i dati stanno in un volume Docker (`jobseeker_jobseeker-data`),
+non in una cartella del progetto. Per caricarci dentro il database che gia'
+avevi, dal server:
+
+```bash
+docker compose stop jobseeker
+docker cp jobseeker.db jobseeker:/app/data/jobseeker.db
+docker cp "CV.pdf" jobseeker:/app/data/cv/
+docker compose start jobseeker
+```
+
+Fermare prima il contenitore serve a non sovrascrivere un database mentre
+qualcuno ci sta scrivendo. Se non copi nulla, l'applicazione parte con un
+archivio vuoto: ricarichi il curriculum e ricrei ricerche e fonti
+dall'interfaccia.
+
+Per il backup, la direzione opposta:
+
+```bash
+docker compose stop jobseeker
+docker cp jobseeker:/app/data/jobseeker.db ./backup-$(date +%F).db
+docker compose start jobseeker
+```
+
+---
+
 ## 5. Verificare che sia tutto in piedi
 
 ```bash
@@ -109,7 +164,7 @@ protezione funziona.
 | File | A cosa serve |
 |---|---|
 | `app/` | l'applicazione |
-| `data/` | il tuo database e il curriculum già caricato |
+| `data/` | database e curriculum, solo nell'archivio zip: non e' nel repository |
 | `Dockerfile` | come si costruisce l'immagine |
 | `docker-compose.yml` | i due contenitori e come si parlano |
 | `Caddyfile` | HTTPS e certificato automatico |
@@ -132,11 +187,11 @@ docker compose down                 # ferma tutto (i dati restano)
 docker compose up -d --build        # dopo aver aggiornato il codice
 ```
 
-**Backup.** Tutto ciò che conta sta nella cartella `data/`:
+**Backup.** Tutto cio' che conta sta nel volume `jobseeker-data`:
 
 ```bash
 docker compose stop jobseeker
-tar czf backup-$(date +%F).tar.gz data/
+docker cp jobseeker:/app/data ./backup-$(date +%F)
 docker compose start jobseeker
 ```
 
@@ -150,9 +205,14 @@ cui nessuno ci sta scrivendo.
 **Il contenitore riparte in continuazione.** Guarda `docker compose logs
 jobseeker`. Quasi sempre è la password vuota nel `.env`.
 
+**`env file ... not found`.** La stack sta usando una versione del compose
+con `env_file: .env`. Portainer quel file non lo crea: le variabili vanno
+nella sezione **Environment variables** della stack, e il compose le legge da
+li'. Aggiorna il repository e ridistribuisci.
+
 **`unable to open database file`.** I permessi della cartella dati.
 Normalmente li sistema `entrypoint.sh` da solo; se il messaggio compare
-comunque:
+comunque con un montaggio da cartella:
 
 ```bash
 sudo chown -R 10001:10001 data

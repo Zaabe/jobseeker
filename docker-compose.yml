@@ -1,4 +1,4 @@
-# Avvio:  docker compose up -d
+# Avvio:  docker compose up -d --build
 #
 # Due contenitori. `jobseeker` e' l'applicazione e non espone nessuna porta
 # verso l'esterno: ci si arriva solo passando da `caddy`, che si occupa di
@@ -8,6 +8,13 @@
 # utente e password in chiaro (base64 non e' cifratura). Senza TLS chiunque
 # stia sulla rete di mezzo le legge. In piu' le notifiche del browser e
 # l'installazione come app funzionano solo su https.
+#
+# Le variabili stanno in `environment` e non in `env_file`, per una ragione
+# precisa: `env_file` pretende un file .env dentro la cartella del progetto,
+# che con Portainer (o con qualunque deploy da git) non esiste, e il deploy
+# fallisce con "env file ... not found". Cosi' invece funzionano entrambi i
+# casi: le variabili della stack in Portainer, e il file .env quando si lancia
+# `docker compose` a mano, perche' compose lo legge da solo per interpolare.
 
 services:
   jobseeker:
@@ -15,14 +22,34 @@ services:
     image: jobseeker:1.0
     container_name: jobseeker
     restart: unless-stopped
-    env_file: .env
     environment:
       # Se la password e' vuota il contenitore si rifiuta di partire, invece
       # di restare aperto a chiunque conosca l'indirizzo.
       JOBSEEKER_REQUIRE_AUTH: "true"
+      JOBSEEKER_USER: ${JOBSEEKER_USER:-}
+      JOBSEEKER_PASSWORD: ${JOBSEEKER_PASSWORD:-}
+      # Fonti
+      ADZUNA_APP_ID: ${ADZUNA_APP_ID:-}
+      ADZUNA_APP_KEY: ${ADZUNA_APP_KEY:-}
+      # Notifiche
+      TELEGRAM_TOKEN: ${TELEGRAM_TOKEN:-}
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-}
+      SMTP_USE_TLS: ${SMTP_USE_TLS:-true}
+      NOTIFY_EMAIL_TO: ${NOTIFY_EMAIL_TO:-}
+      # Livello semantico opzionale
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
     volumes:
-      # Database, curriculum caricati e allegati. E' l'unica cosa da salvare.
-      - ./data:/app/data
+      # Volume nominato, non una cartella del progetto: con un deploy da git la
+      # cartella `data/` non esiste (e' esclusa dal repository perche' contiene
+      # dati personali), e un montaggio relativo creerebbe ogni volta un
+      # archivio vuoto dentro la directory temporanea della stack.
+      - jobseeker-data:/app/data
     expose:
       - "8000"
     networks: [interna]
@@ -31,7 +58,10 @@ services:
     image: caddy:2-alpine
     container_name: jobseeker-caddy
     restart: unless-stopped
-    env_file: .env
+    environment:
+      # Senza dominio il deploy si ferma qui, invece di partire con un
+      # Caddyfile che ascolta su un nome vuoto.
+      DOMINIO: ${DOMINIO:?serve il dominio, per esempio jobseeker.miosito.it}
     ports:
       - "80:80"
       - "443:443"
@@ -46,5 +76,6 @@ networks:
   interna:
 
 volumes:
+  jobseeker-data:   # database SQLite e curriculum caricati
   caddy-data:
   caddy-config:
