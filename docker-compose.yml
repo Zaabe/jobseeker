@@ -50,9 +50,12 @@ services:
       # dati personali), e un montaggio relativo creerebbe ogni volta un
       # archivio vuoto dentro la directory temporanea della stack.
       - jobseeker-data:/app/data
-    expose:
-      - "8000"
-    networks: [interna]
+    ports:
+      # Solo su 127.0.0.1: la porta la vede il reverse proxy installato sulla
+      # macchina, non internet. Scrivere "8000:8000" la pubblicherebbe su tutte
+      # le interfacce, e l'applicazione si troverebbe esposta in chiaro,
+      # scavalcando il proxy e il suo certificato.
+      - "127.0.0.1:8000:8000"
 
   #caddy:
     #image: caddy:2-alpine
@@ -72,10 +75,7 @@ services:
     #depends_on: [jobseeker]
     #networks: [interna]
 
-#networks:
-  #interna:
-
-#volumes:
-  #jobseeker-data:   # database SQLite e curriculum caricati
-  #caddy-data:
-  #caddy-config:
+volumes:
+  # Va dichiarato qui, altrimenti il servizio si riferisce a un volume che non
+  # esiste e compose rifiuta di partire.
+  jobseeker-data:   # database SQLite e curriculum caricati

@@ -107,7 +107,8 @@ Portainer non usa il file `.env`: le variabili si scrivono nella sezione
    |---|---|
    | `JOBSEEKER_USER` | il nome utente per entrare |
    | `JOBSEEKER_PASSWORD` | la password |
-   | `DOMINIO` | il dominio, senza `https://` |
+
+   (`DOMINIO` serviva a Caddy: senza quel contenitore non e' piu' necessaria.)
 
    piu' `ADZUNA_APP_ID`, `ADZUNA_APP_KEY`, `GEMINI_API_KEY`,
    `TELEGRAM_TOKEN`, `TELEGRAM_CHAT_ID` se li usi. Le voci SMTP servono solo
@@ -146,12 +147,52 @@ docker compose start jobseeker
 
 ---
 
+## 4-ter. Il reverse proxy sulla macchina
+
+Il contenitore pubblica la porta **solo su `127.0.0.1:8000`**: la vede il
+reverse proxy installato sul server, non internet. Il blocco nginx:
+
+```nginx
+server {
+    listen 443 ssl http2;
+    server_name jobseeker.tuodominio.it;
+
+    # i certificati li gestisce gia' il tuo proxy (certbot o simili)
+    ssl_certificate     /etc/letsencrypt/live/jobseeker.tuodominio.it/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/jobseeker.tuodominio.it/privkey.pem;
+
+    # Il curriculum e lo storico non devono finire nei motori di ricerca.
+    add_header X-Robots-Tag "noindex, nofollow" always;
+
+    location / {
+        proxy_pass http://127.0.0.1:8000;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        # Senza questo l'applicazione crede di stare su http e le notifiche
+        # del browser non si attivano.
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # Il caricamento del curriculum supera il limite predefinito di 1 MB.
+        client_max_body_size 20M;
+    }
+}
+```
+
+**Serve HTTPS.** L'accesso usa HTTP Basic, che manda utente e password
+codificati in base64: non e' cifratura. Su `http://` chiunque stia sulla rete
+di mezzo le legge, e in piu' le notifiche del browser e l'installazione come
+app non funzionano.
+
+---
+
 ## 5. Verificare che sia tutto in piedi
 
 ```bash
-docker compose ps                      # entrambi "running", jobseeker "healthy"
-curl -sk https://TUO-DOMINIO/healthz   # {"status":"ok"}
-curl -skI https://TUO-DOMINIO/ | head -1   # HTTP/2 401  <- l'accesso è attivo
+docker compose ps                          # "running" e "healthy"
+curl -s http://127.0.0.1:8000/healthz      # {"status":"ok"}  <- dal server
+curl -sI http://127.0.0.1:8000/ | head -1  # HTTP/1.1 401     <- l'accesso è attivo
+curl -skI https://TUO-DOMINIO/ | head -1   # HTTP/2 401       <- attraverso il proxy
 ```
 
 Quel **401** senza credenziali è il risultato giusto: significa che la
@@ -167,7 +208,7 @@ protezione funziona.
 | `data/` | database e curriculum, solo nell'archivio zip: non e' nel repository |
 | `Dockerfile` | come si costruisce l'immagine |
 | `docker-compose.yml` | i due contenitori e come si parlano |
-| `Caddyfile` | HTTPS e certificato automatico |
+| `Caddyfile` | configurazione per Caddy, se un giorno lo riattivi |
 | `entrypoint.sh` | sistema i permessi dei dati all'avvio |
 | `.env.example` | il modello da copiare in `.env` |
 | `requirements.txt` | le librerie Python |
