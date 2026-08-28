@@ -54,28 +54,28 @@ services:
       - "8000"
     networks: [interna]
 
-  caddy:
-    image: caddy:2-alpine
-    container_name: jobseeker-caddy
-    restart: unless-stopped
-    environment:
+  #caddy:
+    #image: caddy:2-alpine
+    #container_name: jobseeker-caddy
+    #restart: unless-stopped
+    #environment:
       # Senza dominio il deploy si ferma qui, invece di partire con un
       # Caddyfile che ascolta su un nome vuoto.
-      DOMINIO: ${DOMINIO:?serve il dominio, per esempio jobseeker.miosito.it}
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy-data:/data      # certificati: se lo perdi, li richiede da capo
-      - caddy-config:/config
-    depends_on: [jobseeker]
-    networks: [interna]
+      #DOMINIO: ${DOMINIO:?serve il dominio, per esempio jobseeker.miosito.it}
+    #ports:
+      #- "80:80"
+      #- "443:443"
+    #volumes:
+      #- ./Caddyfile:/etc/caddy/Caddyfile:ro
+      #- caddy-data:/data      # certificati: se lo perdi, li richiede da capo
+      #- caddy-config:/config
+    #depends_on: [jobseeker]
+    #networks: [interna]
 
-networks:
-  interna:
+#networks:
+  #interna:
 
-volumes:
-  jobseeker-data:   # database SQLite e curriculum caricati
-  caddy-data:
-  caddy-config:
+#volumes:
+  #jobseeker-data:   # database SQLite e curriculum caricati
+  #caddy-data:
+  #caddy-config:
