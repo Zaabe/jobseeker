@@ -18,13 +18,10 @@
 
 services:
   jobseeker:
-    build: .
-    image: jobseeker:1.0
+    image: docker.io/zaabe/jobseeker
     container_name: jobseeker
     restart: unless-stopped
     environment:
-      # Se la password e' vuota il contenitore si rifiuta di partire, invece
-      # di restare aperto a chiunque conosca l'indirizzo.
       JOBSEEKER_REQUIRE_AUTH: "true"
       JOBSEEKER_USER: ${JOBSEEKER_USER:-}
       JOBSEEKER_PASSWORD: ${JOBSEEKER_PASSWORD:-}
@@ -45,16 +42,8 @@ services:
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
     volumes:
-      # Volume nominato, non una cartella del progetto: con un deploy da git la
-      # cartella `data/` non esiste (e' esclusa dal repository perche' contiene
-      # dati personali), e un montaggio relativo creerebbe ogni volta un
-      # archivio vuoto dentro la directory temporanea della stack.
       - jobseeker-data:/app/data
     ports:
-      # Solo su 127.0.0.1: la porta la vede il reverse proxy installato sulla
-      # macchina, non internet. Scrivere "8000:8000" la pubblicherebbe su tutte
-      # le interfacce, e l'applicazione si troverebbe esposta in chiaro,
-      # scavalcando il proxy e il suo certificato.
       - "8050:8000"
 
   #caddy:
@@ -76,6 +65,4 @@ services:
     #networks: [interna]
 
 volumes:
-  # Va dichiarato qui, altrimenti il servizio si riferisce a un volume che non
-  # esiste e compose rifiuta di partire.
-  jobseeker-data:   # database SQLite e curriculum caricati
+  jobseeker-data:
