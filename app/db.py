@@ -6,12 +6,16 @@ l'installazione senza dipendenze aggiuntive.
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
 import threading
+import time
 from datetime import datetime, timezone
-from typing import Any, Iterable
+from typing import Any, Callable, Iterable
 
 from .config import DB_PATH, DEFAULT_SETTINGS
+
+log = logging.getLogger("jobseeker.db")
 
 _local = threading.local()
 
@@ -119,6 +123,10 @@ CREATE TABLE IF NOT EXISTS match (
     UNIQUE(job_id, cv_id)
 );
 CREATE INDEX IF NOT EXISTS idx_match_score ON match(score DESC);
+-- La cancellazione di un curriculum propaga su `match`: senza un indice su
+-- cv_id ogni cancellazione scandisce l'intera tabella riga per riga, tenendo
+-- il lock di scrittura per tutto il tempo.
+CREATE INDEX IF NOT EXISTS idx_match_cv ON match(cv_id);
 
 -- Storico candidature: lo stato in cui si trova ogni offerta salvata.
 CREATE TABLE IF NOT EXISTS application (
@@ -173,6 +181,9 @@ def get_conn() -> sqlite3.Connection:
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA foreign_keys=ON")
         conn.execute("PRAGMA journal_mode=WAL")
+        # Esplicito, per non dipendere solo dal `timeout` del costruttore:
+        # e' l'attesa che SQLite concede a chi trova il database occupato.
+        conn.execute("PRAGMA busy_timeout=30000")
         _local.conn = conn
     return conn
 
@@ -221,17 +232,56 @@ def query_one(sql: str, params: Iterable[Any] = ()) -> sqlite3.Row | None:
     return get_conn().execute(sql, tuple(params)).fetchone()
 
 
+# Quante volte riprovare una scrittura respinta perche' il database e'
+# occupato, e quanto aspettare fra un tentativo e l'altro.
+#
+# `timeout` sulla connessione copre gia' l'attesa normale fra due scrittori.
+# Questo serve ai casi che quel meccanismo non copre: uno snapshot di lettura
+# diventato obsoleto (SQLITE_BUSY_SNAPSHOT, che non si risolve aspettando ma
+# solo riprovando), o un blocco esterno momentaneo, per esempio un backup che
+# tiene il file. Senza riprovare, un istante di indisponibilita' fa fallire
+# l'intero ciclo di controllo e le offerte di quel giro vanno perse.
+TENTATIVI_SCRITTURA = 4
+ATTESA_FRA_TENTATIVI = 0.4   # secondi, raddoppiati a ogni tentativo
+
+
+def _e_occupato(exc: sqlite3.OperationalError) -> bool:
+    testo = str(exc).lower()
+    return "locked" in testo or "busy" in testo
+
+
+def _scrivi(azione: Callable[[sqlite3.Connection], Any]) -> Any:
+    """Esegue una scrittura, riprovando se il database risulta occupato."""
+    attesa = ATTESA_FRA_TENTATIVI
+    for tentativo in range(1, TENTATIVI_SCRITTURA + 1):
+        conn = get_conn()
+        try:
+            risultato = azione(conn)
+            conn.commit()
+            return risultato
+        except sqlite3.OperationalError as exc:
+            if not _e_occupato(exc) or tentativo == TENTATIVI_SCRITTURA:
+                raise
+            # La transazione va chiusa prima di riprovare: lasciarla aperta
+            # terrebbe la connessione ancorata allo snapshot che ha fallito,
+            # e ogni tentativo successivo fallirebbe allo stesso modo.
+            try:
+                conn.rollback()
+            except sqlite3.Error:
+                pass
+            log.warning("database occupato, ritento fra %.1fs (tentativo %d di %d): %s",
+                        attesa, tentativo, TENTATIVI_SCRITTURA, exc)
+            time.sleep(attesa)
+            attesa *= 2
+
+
 def execute(sql: str, params: Iterable[Any] = ()) -> sqlite3.Cursor:
-    conn = get_conn()
-    cur = conn.execute(sql, tuple(params))
-    conn.commit()
-    return cur
+    return _scrivi(lambda conn: conn.execute(sql, tuple(params)))
 
 
 def executemany(sql: str, seq: Iterable[Iterable[Any]]) -> None:
-    conn = get_conn()
-    conn.executemany(sql, [tuple(s) for s in seq])
-    conn.commit()
+    righe = [tuple(s) for s in seq]
+    _scrivi(lambda conn: conn.executemany(sql, righe))
 
 
 def row_to_dict(row: sqlite3.Row | None) -> dict[str, Any] | None:

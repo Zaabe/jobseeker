@@ -830,15 +830,35 @@ def activate_cv(cv_id: int) -> dict[str, Any]:
     return {"status": "attivato", "id": cv_id}
 
 
+def _rimuovi_file_curriculum(filename: str) -> None:
+    """Cancella il file di un curriculum, se ce n'e' davvero uno.
+
+    Non solleva mai: la riga nel database e' gia' stata rimossa, e un file
+    residuo non deve far fallire l'operazione agli occhi di chi la chiede.
+    """
+    if not (filename or "").strip():
+        return
+    percorso = CV_DIR / filename
+    try:
+        if percorso.is_file():
+            percorso.unlink()
+    except OSError as exc:
+        log.warning("file del curriculum non rimosso (%s): %s", percorso.name, exc)
+
+
 @app.delete("/api/cv/{cv_id}")
 def delete_cv(cv_id: int) -> dict[str, str]:
     row = db.query_one("SELECT filename, is_active FROM cv WHERE id = ?", (cv_id,))
     if row is None:
         raise HTTPException(404, "curriculum non trovato")
     db.execute("DELETE FROM cv WHERE id = ?", (cv_id,))
-    stored_file = CV_DIR / row["filename"]
-    if stored_file.exists():
-        stored_file.unlink()
+    # Un profilo compilato a mano non ha un file di partenza, e `filename` e'
+    # vuoto. `CV_DIR / ""` non e' un file inesistente: e' la cartella stessa,
+    # che `exists()` conferma e `unlink()` rifiuta con IsADirectoryError. La
+    # riga era gia' stata cancellata, quindi l'errore lasciava il profilo
+    # sparito ma la richiesta in errore, senza riattivare nessun altro
+    # curriculum e senza invalidare la cache.
+    _rimuovi_file_curriculum(row["filename"])
     if row["is_active"]:
         remaining = db.query_one("SELECT id FROM cv ORDER BY uploaded_at DESC LIMIT 1")
         if remaining:
@@ -852,8 +872,12 @@ def download_cv(cv_id: int) -> FileResponse:
     row = db.query_one("SELECT filename, name FROM cv WHERE id = ?", (cv_id,))
     if row is None:
         raise HTTPException(404, "curriculum non trovato")
+    # Stesso motivo di `_rimuovi_file_curriculum`: senza questo controllo un
+    # profilo manuale restituirebbe la cartella invece di un file.
+    if not (row["filename"] or "").strip():
+        raise HTTPException(404, "questo profilo non ha un file: e' stato compilato a mano")
     path = CV_DIR / row["filename"]
-    if not path.exists():
+    if not path.is_file():
         raise HTTPException(404, "file non piu' presente su disco")
     return FileResponse(path, filename=row["name"])
 

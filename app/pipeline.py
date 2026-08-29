@@ -29,6 +29,26 @@ log = logging.getLogger("jobseeker.pipeline")
 # irraggiungibile.
 MAX_BACKOFF_STEPS = 5
 
+# Quanti punteggi scrivere in una sola transazione.
+#
+# Una transazione per offerta significava, su un archivio da 1300 annunci,
+# 1300 acquisizioni del lock di scrittura una dopo l'altra. SQLite non mette
+# in coda chi aspetta con equita': una richiesta web che vuole scrivere nel
+# frattempo resta ferma per tutta la durata del ricalcolo, e se supera
+# l'attesa concessa riceve "database is locked". A lotti il ricalcolo e' circa
+# trenta volte piu' rapido e lascia dei varchi a chi deve scrivere.
+#
+# Non un lotto unico: una transazione da 1300 righe terrebbe il lock tutta
+# insieme, spostando il problema invece di risolverlo.
+LOTTO_PUNTEGGI = 200
+
+SQL_PUNTEGGIO = (
+    "INSERT INTO match(job_id, cv_id, search_id, score, breakdown_json, computed_at) "
+    "VALUES (?,?,?,?,?,?) ON CONFLICT(job_id, cv_id) DO UPDATE SET "
+    "score = excluded.score, breakdown_json = excluded.breakdown_json, "
+    "search_id = excluded.search_id, computed_at = excluded.computed_at"
+)
+
 
 class Pipeline:
     """Stato condiviso fra le esecuzioni: indice IDF e profilo del curriculum."""
@@ -306,6 +326,7 @@ class Pipeline:
         }
 
         scored: list[dict[str, Any]] = []
+        da_scrivere: list[tuple[Any, ...]] = []
         for row in rows:
             view = JobView(
                 title=row["title"], company=row["company"], description=row["description"],
@@ -328,15 +349,17 @@ class Pipeline:
             if best is None:
                 continue
             breakdown = best.to_dict()
-            db.execute(
-                "INSERT INTO match(job_id, cv_id, search_id, score, breakdown_json, computed_at) "
-                "VALUES (?,?,?,?,?,?) ON CONFLICT(job_id, cv_id) DO UPDATE SET "
-                "score = excluded.score, breakdown_json = excluded.breakdown_json, "
-                "search_id = excluded.search_id, computed_at = excluded.computed_at",
-                (row["id"], cv_id, best_spec.id if best_spec else None, best.score,
-                 json.dumps(breakdown, ensure_ascii=False), db.utcnow()),
-            )
+            da_scrivere.append((
+                row["id"], cv_id, best_spec.id if best_spec else None, best.score,
+                json.dumps(breakdown, ensure_ascii=False), db.utcnow(),
+            ))
             scored.append({"job": db.row_to_dict(row), "score": best.score, "breakdown": breakdown})
+            if len(da_scrivere) >= LOTTO_PUNTEGGI:
+                db.executemany(SQL_PUNTEGGIO, da_scrivere)
+                da_scrivere.clear()
+
+        if da_scrivere:
+            db.executemany(SQL_PUNTEGGIO, da_scrivere)
         return scored
 
     # -- esecuzione --------------------------------------------------------
@@ -396,6 +419,19 @@ class Pipeline:
             log.info("%s: %d offerte pertinenti su %d elencate, %d nuove",
                      row["label"], len(kept), len(postings), len(new_ids))
 
+        # Le offerte sono gia' state archiviate: quello che resta e' la
+        # contabilita' del provider. Se fallisce, si perde una riga di
+        # diario, non il lavoro fatto. Prima un errore qui interrompeva
+        # l'intero ciclo e le fonti successive non venivano nemmeno provate.
+        try:
+            self._registra_esito(provider_id, started, outcome)
+        except Exception as exc:
+            log.warning("%s: esito non registrato (%s: %s)",
+                        row["label"], type(exc).__name__, str(exc)[:120])
+        return outcome
+
+    def _registra_esito(self, provider_id: int, started: str, outcome: dict[str, Any]) -> None:
+        """Aggiorna stato e diario del provider dopo un giro."""
         finished = db.utcnow()
         if outcome["ok"]:
             db.execute(
@@ -417,7 +453,6 @@ class Pipeline:
             (provider_id, started, finished, 1 if outcome["ok"] else 0,
              outcome["fetched"], outcome["new"], outcome["error"][:400]),
         )
-        return outcome
 
     async def run_cycle(self, provider_ids: list[int] | None = None, force: bool = False) -> dict[str, Any]:
         """Un giro completo: scarica, archivia, valuta, notifica."""
@@ -449,7 +484,16 @@ class Pipeline:
             async with httpx.AsyncClient(timeout=45, follow_redirects=True, headers=headers) as http:
                 new_ids: list[int] = []
                 for row in due:
-                    outcome = await self._run_provider(row, specs, http)
+                    try:
+                        outcome = await self._run_provider(row, specs, http)
+                    except Exception as exc:
+                        # Una fonte che fallisce in modo imprevisto non deve
+                        # far saltare le altre: il ciclo prosegue e l'errore
+                        # finisce nel riepilogo.
+                        log.exception("fonte %s: giro interrotto", row["label"])
+                        outcome = {"provider_id": row["id"], "label": row["label"],
+                                   "kind": row["kind"], "fetched": 0, "new": 0, "ok": False,
+                                   "error": f"{type(exc).__name__}: {exc}"[:400]}
                     summary["results"].append(outcome)
                     summary["fetched"] += outcome["fetched"]
                     summary["new_jobs"] += outcome["new"]
