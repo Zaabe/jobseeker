@@ -92,7 +92,10 @@ PESO_MASSIMO = 1.5
 # altrimenti decine di piccoli indizi fino a un totale che nessuno ha voluto.
 MAX_CONTRIBUTI = 20
 # Quanto puo' crescere il peso di un criterio citato spesso negli scarti.
-MAX_ENFASI = 1.6
+# Due volte tanto, non una volta e mezza: un criterio citato in quasi tutti gli
+# scarti e' il criterio su cui quella persona sta effettivamente decidendo, e
+# un peso predefinito di 5 punti su 100 non lo rappresenta.
+MAX_ENFASI = 2.0
 # Sotto questa quota di scarti un motivo non muove i pesi.
 QUOTA_MINIMA_MOTIVO = 0.3
 
@@ -151,6 +154,9 @@ class FeedbackProfile:
 
     discarded: int = 0
     kept: int = 0
+    # Scarti per cui e' stato indicato almeno un motivo: e' la base su cui si
+    # calcola quanto un motivo ricorra (vedi `emphasis`).
+    motivati: int = 0
     # Quanti scarti riguardano il contenuto: sono gli unici che alimentano il
     # vocabolario. Gli altri contano per i motivi, non per la somiglianza.
     topical: int = 0
@@ -178,14 +184,21 @@ class FeedbackProfile:
         Non serve la soglia degli esempi: dieci scarti su dieci motivati con
         "chiede troppa esperienza" sono un'indicazione chiara anche se il
         vocabolario non ha ancora nulla da dire.
+
+        La quota si misura su quanti scarti citano quel motivo, non su quante
+        volte compare nel totale delle citazioni. Uno scarto porta spesso due o
+        tre motivi insieme, e dividere per il totale delle citazioni li faceva
+        diluire a vicenda: «chiede troppa esperienza» indicato in 13 scarti su
+        22 valeva il 31% invece del 59%, e l'enfasi usciva a 1.01 - cioe'
+        niente - dove avrebbe dovuto essere netta.
         """
-        totale = sum(self.reasons.values())
-        if totale < 3:
+        base = self.motivati or self.discarded
+        if base < 3:
             return {}
         pesi: dict[str, float] = {}
         for motivo, conteggio in self.reasons.items():
             componente = REASONS.get(motivo, {}).get("component", "")
-            quota = conteggio / totale
+            quota = min(1.0, conteggio / base)
             if not componente or quota < QUOTA_MINIMA_MOTIVO:
                 continue
             # Da 1.0 (quota minima) fino a MAX_ENFASI (tutti gli scarti).
@@ -200,6 +213,34 @@ class FeedbackProfile:
         righe = [e.describe() for e in self.examples if e.describe()]
         return "\n".join(righe)
 
+    def preferences(self) -> str:
+        """Il quadro d'insieme degli scarti, per il modello linguistico.
+
+        `summary()` elenca i singoli casi; qui c'e' la ricorrenza, che e'
+        l'unica parte trasferibile a un'offerta mai vista: sapere che una
+        persona ha scartato tredici offerte su ventidue perche' chiedevano
+        troppa esperienza vale piu' di tredici titoli.
+        """
+        base = self.motivati or self.discarded
+        righe: list[str] = []
+        if base and self.reasons:
+            elenco = "; ".join(
+                f"{REASONS.get(k, {}).get('label', k).lower()}: {v} scarti su {base}"
+                for k, v in sorted(self.reasons.items(), key=lambda kv: -kv[1]))
+            righe.append(f"Motivi di scarto ricorrenti - {elenco}.")
+        tratti = [f"{etichetta} (in {n} scarti)" for _, etichetta, n in self.top_terms(8)]
+        if tratti:
+            righe.append("Contenuti che nella sua esperienza segnalano un'offerta "
+                         "da scartare - " + "; ".join(tratti) + ".")
+        enfasi = self.emphasis()
+        if enfasi:
+            nomi = {"experience": "esperienza richiesta", "title": "coerenza del ruolo",
+                    "skills": "competenze e settore", "location": "sede",
+                    "education": "titolo di studio"}
+            righe.append("Criteri da guardare con piu' severita' del solito - "
+                         + ", ".join(nomi.get(k, k) for k in enfasi) + ".")
+        return "\n".join(righe)
+
     def top_terms(self, limit: int = 12) -> list[tuple[str, str, int]]:
         """I tratti piu' indicativi di uno scarto, per mostrarli all'utente.
 
@@ -212,6 +253,7 @@ class FeedbackProfile:
         return {
             "discarded": self.discarded,
             "topical": self.topical,
+            "motivated": self.motivati,
             "kept": self.kept,
             "ready": self.ready,
             "confidence": round(self.confidence, 2),
@@ -263,7 +305,10 @@ def build_profile(discarded: list[dict], kept: list[dict],
 
     motivi: Counter[str] = Counter()
     for voce in discarded:
-        motivi.update(voce.get("reasons") or [])
+        indicati = voce.get("reasons") or []
+        motivi.update(indicati)
+        if indicati:
+            profilo.motivati += 1
         profilo.examples.append(DiscardedExample(
             title=(voce.get("title") or "")[:90],
             company=(voce.get("company") or "")[:60],

@@ -87,11 +87,15 @@ DEFAULT_SETTINGS: dict[str, str] = {
     "llm_model": "",
     # Quota del punteggio finale assegnata al giudizio del modello (0-100).
     "llm_weight": "50",
-    # Il modello viene interpellato solo sopra questo punteggio lessicale:
-    # sulle offerte palesemente fuori bersaglio sarebbe spesa inutile.
-    "llm_min_lexical": "30",
-    # Tetto di valutazioni semantiche per ciclo, per tenere il costo prevedibile.
-    "llm_max_per_cycle": "15",
+    # Il modello viene interpellato su ogni offerta sopra questo punteggio, e il
+    # suo giudizio resta scritto nel dettaglio dell'offerta. Sotto la soglia
+    # sarebbe spesa inutile: sono annunci gia' fuori bersaglio.
+    "llm_min_lexical": "50",
+    # Tetto di valutazioni per ciclo. Non e' solo questione di costo: le chiavi
+    # gratuite hanno un limite di richieste al minuto, e superarlo fa rispondere
+    # errori invece che giudizi. Con la pausa fra una chiamata e l'altra questo
+    # tetto occupa poco piu' di un minuto per ciclo.
+    "llm_max_per_cycle": "20",
     # Pesi del punteggio di match (somma consigliata: 100).
     "weight_skills": "40",
     "weight_similarity": "25",

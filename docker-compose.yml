@@ -4,10 +4,10 @@
 # verso l'esterno: ci si arriva solo passando da `caddy`, che si occupa di
 # HTTPS. Il certificato lo prende e lo rinnova da solo da Let's Encrypt.
 #
-# HTTPS non e' un vezzo: l'accesso all'applicazione usa HTTP Basic, che manda
-# utente e password in chiaro (base64 non e' cifratura). Senza TLS chiunque
-# stia sulla rete di mezzo le legge. In piu' le notifiche del browser e
-# l'installazione come app funzionano solo su https.
+# HTTPS non e' un vezzo: utente e password viaggiano dentro la richiesta
+# quando si fa l'accesso, e poi il cookie di sessione a ogni chiamata. Senza
+# TLS chiunque stia sulla rete di mezzo li legge. In piu' le notifiche del
+# browser e l'installazione come app funzionano solo su https.
 #
 # Le variabili stanno in `environment` e non in `env_file`, per una ragione
 # precisa: `env_file` pretende un file .env dentro la cartella del progetto,

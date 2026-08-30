@@ -282,9 +282,9 @@ option { background: var(--sf); color: var(--tx); }
   -webkit-backdrop-filter: saturate(180%) blur(20px);
   border-bottom: 1px solid var(--ln4);
 }
-.topbar-row { display: flex; align-items: flex-end; gap: 16px; max-width: 1180px; }
+.topbar-row { display: flex; align-items: flex-end; gap: 16px; }
 .topbar h1 { margin: 0; font-size: 27px; font-weight: 600; letter-spacing: -.022em; line-height: 1.15; }
-.topbar p { margin: 5px 0 0; font-size: 13px; color: var(--tx3); line-height: 1.4; }
+.topbar p { margin: 5px 0 0; font-size: 13px; color: var(--tx3); line-height: 1.4; max-width: 78ch; }
 .topbar-title { min-width: 0; flex: 1; }
 .topbar-actions { display: flex; align-items: center; gap: 9px; flex: none; }
 
@@ -307,7 +307,12 @@ option { background: var(--sf); color: var(--tx); }
    rosso resta visibile anche con zero notifiche. */
 .badge[hidden] { display: none; }
 
-.view-wrap { padding: 26px 32px 60px; max-width: 1180px; }
+/* Nessun limite di larghezza: il contenuto segue la finestra. Il tetto
+   fissato a 1180px lasciava vuota tutta la parte destra degli schermi larghi.
+   Restano i limiti sui singoli blocchi di testo - la riga sotto al titolo, le
+   descrizioni dei pannelli, i riquadri vuoti - perche' li' non e' lo spazio a
+   mancare ma la riga a diventare troppo lunga da rileggere. */
+.view-wrap { padding: 26px 32px 60px; }
 .stack { display: flex; flex-direction: column; gap: 18px; }
 
 /* -------------------------------------------------------------- comandi */
@@ -603,7 +608,7 @@ input[type=range]::-moz-range-thumb { width: 17px; height: 17px; border: 0; bord
 
 /* ---------------------------------------------------------- impostazioni */
 
-.settings { display: flex; flex-direction: column; gap: 24px; max-width: 760px; }
+.settings { display: flex; flex-direction: column; gap: 24px; }
 .group-title { margin: 0 0 4px; font-size: 12px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--tx4); padding-left: 4px; }
 .group-note { margin: 0 0 10px; font-size: 12.5px; color: var(--tx3); padding-left: 4px; line-height: 1.45; }
 .rows { background: var(--sf); border: 1px solid var(--ln); border-radius: 16px; box-shadow: 0 1px 2px var(--sh1); overflow: hidden; }
@@ -660,7 +665,12 @@ input[type=range]::-moz-range-thumb { width: 17px; height: 17px; border: 0; bord
 /* -------------------------------------------------------- pannello e modale */
 
 .scrim { position: fixed; inset: 0; z-index: 60; display: flex; justify-content: flex-end; }
-.scrim > .backdrop { position: absolute; inset: 0; background: rgba(0, 0, 0, .24); backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px); animation: fade .28s ease both; }
+/* Vale per entrambi i contenitori. `.modal-scrim` non era compreso, e il suo
+   fondale restava un elemento statico di 0x0: non oscurava niente, non
+   raccoglieva il clic per chiudere, e - essendo ancora in flusso - occupava
+   una riga della griglia, spingendo la scheda sotto il centro dello schermo. */
+.scrim > .backdrop,
+.modal-scrim > .backdrop { position: absolute; inset: 0; background: rgba(0, 0, 0, .24); backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px); animation: fade .28s ease both; }
 /* Il pannello non deve mai scorrere in orizzontale: se un contenuto e' troppo
    largo il rimedio e' mandarlo a capo, non una barra di scorrimento. */
 .drawer { overflow-x: hidden; }
@@ -724,7 +734,7 @@ input[type=range]::-moz-range-thumb { width: 17px; height: 17px; border: 0; bord
 .notif-head > div { min-width: 0; flex: 1; }
 .notif-head p { margin: 0; font-size: 12.5px; color: var(--tx3); line-height: 1.45; }
 .notif-list { display: flex; flex-direction: column; gap: 9px; margin-top: 18px; }
-.notif { display: grid; grid-template-columns: auto 1fr; gap: 13px; align-items: center; padding: 13px 15px; border: 1px solid var(--ln3); border-radius: 13px; cursor: pointer; background: var(--sf); transition: background .16s ease; }
+.notif { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 13px; align-items: center; padding: 13px 15px; border: 1px solid var(--ln3); border-radius: 13px; cursor: pointer; background: var(--sf); transition: background .16s ease; }
 .notif.unseen { background: var(--ac1); }
 .notif:hover { background: var(--hv); }
 
@@ -933,3 +943,175 @@ input[type=range]::-moz-range-thumb { width: 17px; height: 17px; border: 0; bord
          font: inherit; font-size: 12px; line-height: 1; color: var(--tx3); }
 .togli:hover { color: var(--bad); }
 .chip.spento .togli:hover { color: var(--ac); }
+
+/* ------------------------------------------------- giudizio del modello */
+
+/* Nella lista il giudizio sta su una riga sola: e' un'anticipazione, non il
+   testo intero. Chi vuole leggerlo apre l'offerta. */
+.job-ai {
+  display: flex; align-items: flex-start; gap: 6px; margin-top: 7px;
+  font-size: 12px; line-height: 1.45; color: var(--tx3);
+}
+.job-ai svg { stroke: var(--pp); flex: none; margin-top: 2px; }
+.job-ai span {
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.llm-nota {
+  margin: 10px 0 0; padding: 9px 11px; border-radius: 9px;
+  background: var(--ppchip); font-size: 12.5px; line-height: 1.5; color: var(--pp2);
+}
+
+.llm-dubbi { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--ac6); }
+.llm-dubbi > b { font-size: 12px; font-weight: 600; color: var(--pp2); }
+.llm-dubbi ul { margin: 7px 0 0; padding-left: 17px; display: flex; flex-direction: column; gap: 5px; }
+.llm-dubbi li { font-size: 12.5px; line-height: 1.5; color: var(--tx2); }
+
+.chip.consiglio { font-weight: 600; }
+.chip.consiglio.candidati { background: var(--ok2); color: var(--ok-ink); }
+.chip.consiglio.valuta { background: var(--wn2); color: var(--wn-ink); }
+.chip.consiglio.lascia_perdere { background: var(--bd3); color: var(--bad-ink); }
+
+/* --------------------------------------------------------------- accesso */
+
+/* La pagina di accesso vive nello stesso foglio di stile dell'applicazione:
+   gli stessi token, la stessa tipografia, gli stessi bottoni. Un secondo
+   foglio finirebbe per divergere alla prima modifica. */
+.login-page { overflow: auto; }
+
+.login-shell {
+  min-height: 100%; display: grid; place-items: center;
+  padding: max(24px, env(safe-area-inset-top)) 20px max(24px, env(safe-area-inset-bottom));
+}
+
+.login-card {
+  width: 100%; max-width: 372px; display: flex; flex-direction: column; gap: 14px;
+  background: var(--sf); border: 1px solid var(--ln); border-radius: 20px;
+  box-shadow: 0 1px 2px var(--sh1), 0 12px 40px var(--sh1);
+  padding: 28px 26px 24px; animation: rise .34s var(--ease) both;
+}
+
+.login-brand { display: flex; align-items: center; gap: 10px; }
+.login-brand .brand-mark { width: 34px; height: 34px; border-radius: 10px; }
+
+.login-card h1 { margin: 6px 0 0; font-size: 22px; font-weight: 600; letter-spacing: -.02em; }
+.login-lead { margin: 0 0 4px; font-size: 13px; color: var(--tx3); line-height: 1.5; }
+.login-errore { margin-bottom: 2px; animation: expand .26s var(--ease) both; }
+
+/* 16px non e' un capriccio tipografico: sotto questa misura iOS ingrandisce
+   la pagina appena si tocca il campo, e il modulo esce dallo schermo. */
+.login-card .input { height: 44px; font-size: 16px; }
+
+.login-password { position: relative; }
+.login-password .input { padding-right: 42px; }
+.login-occhio {
+  position: absolute; top: 0; right: 0; height: 44px; width: 40px;
+  display: grid; place-items: center; border: 0; background: none;
+  color: var(--tx4); cursor: pointer; border-radius: 0 9px 9px 0;
+}
+.login-occhio:hover { color: var(--tx2); }
+.login-occhio.on { color: var(--ac); }
+
+.login-invio { height: 44px; margin-top: 6px; font-size: 15px; }
+
+.login-foot { margin: 4px 0 0; font-size: 11.5px; color: var(--tx4); line-height: 1.55; }
+.login-foot code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px;
+  background: var(--fl2); padding: 1px 5px; border-radius: 5px; color: var(--tx3);
+}
+
+@media (max-width: 420px) {
+  .login-card { padding: 24px 20px 20px; border-radius: 18px; }
+  .login-card h1 { font-size: 20px; }
+}
+
+/* ------------------------------------------------ etichette del profilo */
+
+.cv-lettura { margin-top: 12px; }
+.cv-lettura ul { margin: 5px 0 0; padding-left: 16px; display: flex; flex-direction: column; gap: 3px; }
+.cv-prove { margin-top: 8px; }
+.cv-prove summary { cursor: pointer; font-size: 11.5px; color: var(--tx3); }
+.cv-prove ul { margin-top: 6px; font-size: 11.5px; color: var(--tx3); }
+
+/* ------------------------------------------------------ scheda di conferma */
+
+.modal.conferma { width: 400px; }
+.modal.conferma .modal-foot { margin-top: 22px; }
+.conferma-mark {
+  width: 34px; height: 34px; flex: none; border-radius: 9px;
+  display: grid; place-items: center; background: var(--fl2); color: var(--tx3);
+}
+.conferma-mark.bad { background: var(--bd3); color: var(--bad-ink); }
+.conferma-mark svg { stroke: currentColor; }
+
+/* Nomi di profili e di fonti li scrive l'utente e possono essere lunghi quanto
+   vuole: senza questo vanno a spingere la scheda oltre il bordo dello schermo
+   invece di andare a capo. */
+.modal-head h2, .modal-head p { overflow-wrap: anywhere; }
+
+@media (max-width: 520px) {
+  /* Sul telefono i 32px di margine attorno alla scheda si mangiavano un quinto
+     della larghezza, e il titolo andava a capo su ogni parola. */
+  .modal-scrim { padding: 16px; }
+  .modal.conferma { width: 100%; }
+  /* Pulsanti a tutta larghezza e impilati: sotto i 520px stavano stretti in
+     riga, e l'azione irreversibile finiva a filo del bordo. L'ordine invertito
+     mette la conferma in alto, sotto il pollice, e l'annullamento sotto. */
+  .modal.conferma .modal-foot { flex-direction: column-reverse; gap: 8px; }
+  /* `flex: none` non e' ridondante: piu' in alto i pulsanti del piede hanno
+     `flex: 1 1 100%`, scritto per un piede in riga che va a capo. In colonna
+     quel 100% diventa l'altezza voluta da ciascuno, i due si contendono lo
+     spazio e si schiacciano entrambi all'altezza del testo. */
+  .modal.conferma .modal-foot .btn { flex: none; width: 100%; justify-content: center; height: 40px; }
+}
+
+/* La X di una singola notifica. Sempre visibile e non solo al passaggio del
+   mouse: sul telefono il passaggio del mouse non esiste, e un comando che si
+   scopre solo al primo tocco e' un comando che non c'e'. */
+.notif .scarta {
+  width: 28px; height: 28px; flex: none; border: 0; border-radius: 50%;
+  background: transparent; color: var(--tx4); cursor: pointer;
+  display: grid; place-items: center; padding: 0;
+  transition: background .16s ease, color .16s ease;
+}
+.notif .scarta:hover { background: var(--bd1); color: var(--bad); }
+.notif .scarta svg { stroke: currentColor; }
+
+@media (max-width: 520px) {
+  /* Il bersaglio cresce dove si tocca col dito, senza allargare la riga: il
+     margine negativo se lo riprende dal proprio spazio interno. */
+  .notif .scarta { width: 34px; height: 34px; margin: -3px -4px -3px 0; }
+}
+
+/* La riga che se ne va si accartoccia invece di sparire di colpo, e quelle
+   sotto salgono da sole a prenderne il posto: e' il movimento a raccontare
+   cos'e' successo, senza dover ridisegnare il pannello. */
+.notif.in-uscita {
+  overflow: hidden; pointer-events: none;
+  padding-top: 0; padding-bottom: 0; border-width: 0;
+  opacity: 0; transform: translateX(14px);
+  transition: height .26s var(--ease), margin .26s var(--ease),
+              padding .26s var(--ease), border-width .26s var(--ease),
+              transform .26s var(--ease), opacity .2s ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .notif.in-uscita { transition: none; }
+}
+
+/* Uscita del pannello laterale: scorre a destra e si porta dietro il fondale.
+   L'entrata (`sheetIn`) arriva da 36px perche' e' un accenno; l'uscita va via
+   per intero, perche' deve dire che non c'e' piu' niente da vedere. */
+@keyframes sheetOut { to { opacity: 0; transform: translateX(100%); } }
+
+.scrim.in-chiusura > .backdrop { animation: fade .3s ease reverse both; }
+.scrim.in-chiusura .drawer { animation: sheetOut .32s var(--ease) both; }
+/* Durante l'uscita il pannello non risponde piu': un secondo clic su un
+   pulsante che sta scivolando via non deve far partire un'altra richiesta. */
+.scrim.in-chiusura { pointer-events: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .scrim.in-chiusura > .backdrop,
+  .scrim.in-chiusura .drawer { animation: none; }
+}

@@ -48,6 +48,8 @@ const T = {
     emptySearchesTitle: "Nessuna ricerca configurata",
     emptySearchesBody: "Senza ricerche vengono archiviate tutte le offerte trovate dalle fonti, senza filtro.",
     confirmDelSearch: "Eliminare questa ricerca?",
+    confirmDelSearchBody: "Le offerte già raccolte restano dove sono: smetterà solo di cercarne di nuove con queste parole.",
+    confirmDelete: "Elimina",
     detectTitle: "Aggiungi una fonte dal suo indirizzo",
     detectBody: "Incolla il link della pagina «lavora con noi» di un'azienda. Se usa uno dei sistemi supportati, JobSeeker lo riconosce da solo e interroga l'API ufficiale.",
     detectBtn: "Riconosci", detecting: "Riconoscimento in corso…", addSource: "Aggiungi questa fonte",
@@ -56,7 +58,8 @@ const T = {
     needsKey: "Richiede una chiave", collected: "offerte raccolte", every: "Ogni",
     emptyProvidersTitle: "Nessuna fonte configurata",
     emptyProvidersBody: "Incolla qui sopra il link di una board aziendale, oppure scegli una fonte dall'elenco.",
-    confirmDelProvider: "Eliminare questa fonte? Le offerte che ha raccolto verranno rimosse.",
+    confirmDelProvider: "Eliminare questa fonte?",
+    confirmDelProviderBody: "Le offerte che ha raccolto vengono rimosse insieme a lei.",
     querying: "Interrogazione in corso…", available: "offerte disponibili", relevant: "pertinenti",
     rejLocation: "scartate dal filtro sulla sede", rejKeywords: "senza le parole chiave",
     noDescription: "(senza descrizione)", noLocation: "sede n.d.",
@@ -76,7 +79,15 @@ const T = {
     manualBody: "Non hai un curriculum a portata di mano? Puoi dichiarare le competenze a mano: il punteggio funziona lo stesso, basandosi su quelle invece che sul testo del documento.",
     manualPrompt: "Come vuoi chiamare questo profilo?", manualDefault: "Il mio profilo",
     addSkillPh: "Aggiungi una competenza… (es. HPLC, GMP, colture cellulari)",
-    tagLegend: "In verde le competenze riconosciute dal motore, che partecipano al confronto con le offerte. In blu le etichette libere, che contribuiscono solo all'affinità testuale.",
+    tagLegend: "In verde le competenze lette dal curriculum, in blu quelle che hai aggiunto tu. Passa il mouse su un'etichetta per sapere se entra nel confronto per competenze o se conta solo per l'affinità testuale.",
+    tagMine: "aggiunta da te", tagFromCv: "letta dal curriculum",
+    tagCounts: "entra nel confronto per competenze",
+    tagTextOnly: "conta solo per l'affinità testuale",
+    parseTitle: "Come è stato letto il curriculum",
+    parseModel: "Letto dal modello linguistico e dall'analisi automatica del testo.",
+    parseHeuristic: "Letto dall'analisi automatica del testo.",
+    parseDisagree: "Le due letture non vanno d'accordo su:",
+    parseEvidence: "Esperienze conteggiate",
     noTags: "Nessuna competenza: aggiungine almeno una.",
     years: "Anni di esperienza", saveRescore: "Salva e ricalcola",
     manualTag: "Compilato a mano", uploadedAgo: "caricato", createdAgo: "creato",
@@ -84,6 +95,7 @@ const T = {
     emptyCvTitle: "Nessun profilo",
     emptyCvBody: "Carica un curriculum oppure creane uno a mano: senza, le offerte vengono raccolte ma non ricevono un punteggio di compatibilità.",
     confirmDelCv: "Eliminare questo profilo?",
+    confirmDelCvBody: "Spariscono le competenze, gli anni dichiarati e i punteggi calcolati con questo profilo. Le offerte restano.",
     testTitle: "Prova il punteggio",
     testBody: "Incolla un annuncio per vedere come viene calcolata la compatibilità con il profilo attivo.",
     testTitlePh: "Ricercatore Junior — Biologia Molecolare", testDescPh: "Incolla qui la descrizione…",
@@ -127,10 +139,17 @@ const T = {
     llmNote: "Un modello linguistico rilegge annuncio e curriculum e corregge il punteggio lessicale, cogliendo le affinità che il confronto per parole non vede. Richiede una chiave nel file .env.",
     llmModel: "Modello", llmModelDefault: "Predefinito del fornitore:",
     llmEnable: "Attiva la valutazione semantica", llmWeight: "Peso del giudizio del modello",
-    llmFloor: "Valuta solo sopra un punteggio lessicale di", llmMax: "Massimo valutazioni per ciclo",
+    llmFloor: "Valuta ogni offerta sopra un punteggio lessicale di", llmMax: "Massimo valutazioni per ciclo",
+    aiWaiting: "offerte sopra soglia aspettano ancora il giudizio del modello.",
+    aiDone: "Tutte le offerte sopra soglia sono state valutate.",
+    aiConcerns: "Perché potrebbe non fare per te",
+    aiStrengths: "Cosa corrisponde", aiGaps: "Cosa ti manca",
+    recApply: "Candidati", recMaybe: "Da valutare", recSkip: "Lascia perdere",
     ready: "Pronto", noKey: "Chiave mancante", keyPresent: "Chiave presente",
     keyFrom: "Chiave da", intoEnv: "nel file .env come", library: "libreria",
     diagTitle: "Diagnostica", diagRuns: "Ultime esecuzioni",
+    accessTitle: "Accesso", accessNote: "La sessione resta aperta per trenta giorni su questo dispositivo.",
+    logout: "Esci", logoutHelp: "Chiude la sessione e riporta alla pagina di accesso.",
     dSource: "Fonte", dKind: "Tipo", dJobs: "Offerte", dState: "Stato", dFails: "Errori di fila",
     dWhen: "Quando", dOutcome: "Esito", dFound: "Trovate", dNew: "Nuove", dError: "Errore",
     neverRun: "mai eseguita", ok: "ok", error: "errore",
@@ -152,6 +171,7 @@ const T = {
     jobDetail: "Dettaglio offerta", notifications: "Notifiche",
     notificationsBody: "Offerte che hanno superato la soglia di compatibilità impostata.",
     clearAll: "Svuota l'elenco", noNotifications: "Nessuna notifica",
+    delNotif: "Togli questa notifica dall'elenco", notifDeleted: "Notifica tolta dall'elenco",
     clearAllDone: "{n} notifiche cancellate",
     noNotificationsBody: "Compariranno qui le offerte sopra la soglia di compatibilità che hai impostato.",
     missing: "Manca", remote: "Da remoto", posted: "pubblicata", weightLbl: "peso", lexical: "lessicale",
@@ -209,6 +229,8 @@ const T = {
     emptySearchesTitle: "No searches configured",
     emptySearchesBody: "Without searches every posting the sources return gets stored, unfiltered.",
     confirmDelSearch: "Delete this search?",
+    confirmDelSearchBody: "The postings already collected stay where they are: it will simply stop looking for new ones with these words.",
+    confirmDelete: "Delete",
     detectTitle: "Add a source from its URL",
     detectBody: "Paste a company careers page link. If it runs on a supported system, JobSeeker recognises it and queries the official API.",
     detectBtn: "Detect", detecting: "Detecting…", addSource: "Add this source",
@@ -217,7 +239,8 @@ const T = {
     needsKey: "Needs an API key", collected: "postings collected", every: "Every",
     emptyProvidersTitle: "No sources configured",
     emptyProvidersBody: "Paste a company board link above, or pick a source from the catalogue.",
-    confirmDelProvider: "Delete this source? The postings it collected will be removed.",
+    confirmDelProvider: "Delete this source?",
+    confirmDelProviderBody: "The postings it collected are removed along with it.",
     querying: "Querying…", available: "postings available", relevant: "relevant",
     rejLocation: "dropped by the location filter", rejKeywords: "without the keywords",
     noDescription: "(no description)", noLocation: "location n/a",
@@ -237,7 +260,15 @@ const T = {
     manualBody: "No résumé at hand? You can declare your skills by hand: the score works just the same, based on those instead of the document text.",
     manualPrompt: "What should this profile be called?", manualDefault: "My profile",
     addSkillPh: "Add a skill… (e.g. HPLC, GMP, cell culture)",
-    tagLegend: "Green tags are skills the engine recognises and uses in the comparison. Blue tags are free labels that only feed textual similarity.",
+    tagLegend: "Green tags were read from the résumé, blue ones you added yourself. Hover a tag to see whether it takes part in the skill-by-skill comparison or only feeds textual similarity.",
+    tagMine: "added by you", tagFromCv: "read from the résumé",
+    tagCounts: "takes part in the skill comparison",
+    tagTextOnly: "only feeds textual similarity",
+    parseTitle: "How the résumé was read",
+    parseModel: "Read by the language model and by the automatic text analysis.",
+    parseHeuristic: "Read by the automatic text analysis.",
+    parseDisagree: "The two readings disagree on:",
+    parseEvidence: "Experience counted",
     noTags: "No skills yet: add at least one.",
     years: "Years of experience", saveRescore: "Save and rescore",
     manualTag: "Filled in by hand", uploadedAgo: "uploaded", createdAgo: "created",
@@ -245,6 +276,7 @@ const T = {
     emptyCvTitle: "No profile",
     emptyCvBody: "Upload a résumé or create one by hand: without it, postings are collected but get no match score.",
     confirmDelCv: "Delete this profile?",
+    confirmDelCvBody: "The skills, the declared years and the scores computed with this profile all go. The postings stay.",
     testTitle: "Try the score",
     testBody: "Paste a posting to see how the match against the active profile is computed.",
     testTitlePh: "Junior Researcher — Molecular Biology", testDescPh: "Paste the description here…",
@@ -288,10 +320,17 @@ const T = {
     llmNote: "A language model re-reads the posting and the résumé and corrects the lexical score, catching affinities a word-by-word comparison misses. Requires a key in the .env file.",
     llmModel: "Model", llmModelDefault: "Provider default:",
     llmEnable: "Enable semantic evaluation", llmWeight: "Weight of the model's judgement",
-    llmFloor: "Only evaluate above a lexical score of", llmMax: "Max evaluations per cycle",
+    llmFloor: "Evaluate every posting above a lexical score of", llmMax: "Max evaluations per cycle",
+    aiWaiting: "postings above the threshold are still waiting for the model.",
+    aiDone: "Every posting above the threshold has been evaluated.",
+    aiConcerns: "Why it might not be for you",
+    aiStrengths: "What matches", aiGaps: "What you are missing",
+    recApply: "Apply", recMaybe: "Worth a look", recSkip: "Skip",
     ready: "Ready", noKey: "Key missing", keyPresent: "Key present",
     keyFrom: "Key from", intoEnv: "into .env as", library: "library",
     diagTitle: "Diagnostics", diagRuns: "Latest runs",
+    accessTitle: "Access", accessNote: "The session stays open for thirty days on this device.",
+    logout: "Sign out", logoutHelp: "Closes the session and returns to the sign-in page.",
     dSource: "Source", dKind: "Kind", dJobs: "Postings", dState: "State", dFails: "Failures in a row",
     dWhen: "When", dOutcome: "Outcome", dFound: "Found", dNew: "New", dError: "Error",
     neverRun: "never run", ok: "ok", error: "error",
@@ -313,6 +352,7 @@ const T = {
     jobDetail: "Job detail", notifications: "Notifications",
     notificationsBody: "Postings that cleared the match threshold you set.",
     clearAll: "Clear the list", noNotifications: "No notifications",
+    delNotif: "Remove this notification from the list", notifDeleted: "Notification removed",
     clearAllDone: "{n} notifications deleted",
     noNotificationsBody: "Postings above the match threshold you set will show up here.",
     missing: "Missing", remote: "Remote", posted: "posted", weightLbl: "weight", lexical: "lexical",
@@ -391,6 +431,9 @@ const state = {
   cvs: [],
   skills: [],
   cvTags: {},
+  cvManual: {},
+  // Chi sta aspettando la risposta di una conferma, finche' e' aperta.
+  conferma: null,
   settings: {},
   meta: { smtp: {}, telegram: {}, llm: {} },
   diagnostics: null,
@@ -418,6 +461,13 @@ async function api(path, options = {}) {
     opts.body = JSON.stringify(opts.body);
   }
   const response = await fetch(path, opts);
+  /* Sessione scaduta, o mai aperta. Insistere con le altre chiamate
+     produrrebbe solo una fila di errori su una pagina che non ha più niente
+     da mostrare: si torna all'accesso, e da lì si rientra dov'eravamo. */
+  if (response.status === 401) {
+    location.replace(`/login?next=${encodeURIComponent(location.pathname + location.search)}`);
+    throw new Error("Accesso richiesto");
+  }
   const isJson = (response.headers.get("content-type") || "").includes("json");
   const payload = isJson ? await response.json() : await response.text();
   if (!response.ok) throw new Error((payload && payload.error) || `Errore ${response.status}`);
@@ -821,6 +871,9 @@ function jobCard(job, index) {
         ${matched.map((s) => `<span class="chip ok">${esc(s)}</span>`).join("")}
         ${missing.map((s) => `<span class="chip miss">${t("missing")} ${esc(s)}</span>`).join("")}
       </div>` : ""}
+      ${b.llm && b.llm.reasoning ? `<div class="job-ai">
+        ${svg(ICONS.spark, 12, 'stroke-width="1.9"')}<span>${esc(b.llm.reasoning)}</span>
+      </div>` : ""}
     </div>
     <div class="job-aside">
       <span>${esc(timeAgo(job.posted_at || job.first_seen_at))}</span>
@@ -1060,7 +1113,12 @@ function renderSearches() {
   });
 
   $$("[data-del-search]").forEach((b) => b.onclick = async () => {
-    if (!confirm(t("confirmDelSearch"))) return;
+    const s = state.searches.find((x) => x.id === +b.dataset.delSearch);
+    if (!await chiediConferma({
+      titolo: t("confirmDelSearch"),
+      testo: (s?.name ? `«${s.name}» — ` : "") + t("confirmDelSearchBody"),
+      conferma: t("confirmDelete"),
+    })) return;
     await api(`/api/searches/${b.dataset.delSearch}`, { method: "DELETE" });
     toast(t("searchDeleted"));
     loadSearches();
@@ -1254,7 +1312,12 @@ function wireSources() {
   });
 
   $$("[data-del-provider]").forEach((b) => b.onclick = async () => {
-    if (!confirm(t("confirmDelProvider"))) return;
+    const p = state.providers.find((x) => x.id === +b.dataset.delProvider);
+    if (!await chiediConferma({
+      titolo: t("confirmDelProvider"),
+      testo: (p?.label ? `«${p.label}» — ` : "") + t("confirmDelProviderBody"),
+      conferma: t("confirmDelete"),
+    })) return;
     await api(`/api/providers/${b.dataset.delProvider}`, { method: "DELETE" });
     toast(t("sourceDeleted"));
     await Promise.all([loadSources(), loadJobs()]);
@@ -1449,20 +1512,55 @@ async function loadCv() {
   state.cvs = cvs;
   state.skills = skills;
   state.cvTags = {};
-  cvs.forEach((c) => { state.cvTags[c.id] = [...(c.skills || []), ...(c.extra_tags || [])]; });
+  state.cvManual = {};
+  cvs.forEach((c) => {
+    state.cvTags[c.id] = [...(c.skills || []), ...(c.extra_tags || [])];
+    state.cvManual[c.id] = new Set(c.manual_tags || []);
+  });
   renderCv();
   renderShell();
 }
 
 function tagChips(cvId) {
   const known = new Set(state.skills.map((s) => s.name));
+  const mie = state.cvManual?.[cvId] || new Set();
   const all = state.cvTags[cvId] || [];
   if (!all.length) return `<span class="empty-inline">${t("noTags")}</span>`;
-  return all.map((tag) => `<span class="chip tag ${known.has(tag) ? "ok" : "info"}">
-      <span>${esc(tag)}</span>
-      <button class="x" type="button" data-cv="${cvId}" data-tag="${esc(tag)}">
-        ${svg(ICONS.cross, 9, 'stroke-width="3.4"')}</button>
-    </span>`).join("");
+  /* Il colore dice da dove viene l'etichetta: verde dal curriculum, blu
+     aggiunta a mano. Se entri o no nel confronto per competenze - che dipende
+     dal dizionario, non dall'origine - resta scritto nel suggerimento: sono
+     due informazioni diverse, e caricarle sullo stesso segno rendeva
+     illeggibili entrambe. */
+  return all.map((tag) => {
+    const aMano = mie.has(tag);
+    const effetto = known.has(tag) ? t("tagCounts") : t("tagTextOnly");
+    return `<span class="chip tag ${aMano ? "info" : "ok"}"
+        title="${aMano ? t("tagMine") : t("tagFromCv")} · ${effetto}">
+        <span>${esc(tag)}</span>
+        <button class="x" type="button" data-cv="${cvId}" data-tag="${esc(tag)}">
+          ${svg(ICONS.cross, 9, 'stroke-width="3.4"')}</button>
+      </span>`;
+  }).join("");
+}
+
+/* Come e' stato letto il curriculum, e su cosa le due letture non concordano.
+   Un profilo sbagliato sposta ogni punteggio: se il numero non e' sicuro, e'
+   meglio che si veda. */
+function parseNotice(c) {
+  const p = c.parse || {};
+  const divergenze = p.divergenze || [];
+  const esperienze = p.esperienze || [];
+  if (!p.fonte && !divergenze.length) return "";
+  const avviso = (p.avviso || "").trim();
+  return `<div class="notice ${divergenze.length ? "warn" : ""} cv-lettura">
+    <b>${t("parseTitle")}</b>
+    ${p.fonte === "modello" ? t("parseModel") : t("parseHeuristic")}
+    ${avviso ? `<div class="sample">${esc(avviso)}</div>` : ""}
+    ${divergenze.length ? `<div class="sample"><b>${t("parseDisagree")}</b>
+      <ul>${divergenze.map((d) => `<li>${esc(d)}</li>`).join("")}</ul></div>` : ""}
+    ${esperienze.length ? `<details class="cv-prove"><summary>${t("parseEvidence")}</summary>
+      <ul>${esperienze.map((e) => `<li>${esc(e)}</li>`).join("")}</ul></details>` : ""}
+  </div>`;
 }
 
 function renderCv() {
@@ -1500,6 +1598,7 @@ function renderCv() {
               <button class="btn" type="button" data-addtag="${c.id}">${t("add")}</button>
             </div>
             <p class="legend">${t("tagLegend")}</p>
+            ${parseNotice(c)}
 
             <div class="cv-foot">
               <label class="field"><span>${t("years")}</span>
@@ -1567,6 +1666,7 @@ function wireCv() {
     e.stopPropagation();
     const id = b.dataset.cv;
     state.cvTags[id] = (state.cvTags[id] || []).filter((x) => x !== b.dataset.tag);
+    state.cvManual[id]?.delete(b.dataset.tag);
     redraw(id);
   });
   bindRemovals();
@@ -1582,7 +1682,10 @@ function wireCv() {
       if (res.canonical) value = res.canonical;
     } catch (e) { /* senza rete resta l'etichetta digitata */ }
     if ((state.cvTags[id] || []).includes(value)) { toast(t("dupSkill"), "bad"); }
-    else state.cvTags[id].push(value);
+    else {
+      state.cvTags[id].push(value);
+      (state.cvManual[id] ||= new Set()).add(value);
+    }
     input.value = "";
     redraw(id);
     input.focus();
@@ -1614,7 +1717,12 @@ function wireCv() {
   });
 
   $$("[data-delcv]").forEach((b) => b.onclick = async () => {
-    if (!confirm(t("confirmDelCv"))) return;
+    const c = state.cvs.find((x) => x.id === +b.dataset.delcv);
+    if (!await chiediConferma({
+      titolo: t("confirmDelCv"),
+      testo: (c?.name ? `«${c.name}» — ` : "") + t("confirmDelCvBody"),
+      conferma: t("confirmDelete"),
+    })) return;
     await api(`/api/cv/${b.dataset.delcv}`, { method: "DELETE" });
     toast(t("profileDeleted"));
     loadCv();
@@ -1666,7 +1774,8 @@ async function loadFeedback() {
 async function loadSettings(alsoRender = true) {
   const data = await api("/api/settings");
   state.settings = data.settings;
-  state.meta = { smtp: data.smtp || {}, telegram: data.telegram || {}, llm: data.llm || {} };
+  state.meta = { smtp: data.smtp || {}, telegram: data.telegram || {}, llm: data.llm || {},
+                 auth: !!data.auth };
   if (alsoRender && state.view === "settings") {
     state.diagnostics = await api("/api/diagnostics?limit=25").catch(() => null);
     renderSettings();
@@ -1881,7 +1990,8 @@ function renderSettings() {
         </div>
         <div class="notice ${m.llm.available ? "ok" : ""}" style="margin-top:10px">${
           m.llm.available
-            ? `${t("ready")}: ${esc(m.llm.model)}.`
+            ? `${t("ready")}: ${esc(m.llm.model)}.` + (!on("llm_enabled") ? ""
+                : m.llm.pending ? ` ${m.llm.pending} ${t("aiWaiting")}` : ` ${t("aiDone")}`)
             : esc(state.lang === "it"
               ? `Fornitore non utilizzabile — ${m.llm.reason || ""}. I punteggi vengono calcolati dal motore lessicale, che non ha bisogno di chiavi né di connessione.`
               : `Provider unusable — ${m.llm.reason || ""}. Scores come from the lexical engine, which needs neither a key nor a connection.`)}</div>
@@ -1891,6 +2001,22 @@ function renderSettings() {
         <h2 class="group-title">${t("diagTitle")}</h2>
         <div class="rows" style="padding:18px">${diagnosticsHtml()}</div>
       </section>
+
+      ${m.auth ? `
+      <section>
+        <h2 class="group-title">${t("accessTitle")}</h2>
+        <p class="group-note">${t("accessNote")}</p>
+        <div class="rows">
+          <div class="row">
+            <div class="row-label"><b>${t("logout")}</b><span>${t("logoutHelp")}</span></div>
+            <div class="row-control">
+              <form method="post" action="/logout">
+                <button class="btn danger" type="submit">${t("logout")}</button>
+              </form>
+            </div>
+          </div>
+        </div>
+      </section>` : ""}
     </div>`;
 
   wireSettings();
@@ -2049,6 +2175,17 @@ function wireSettings() {
 
 /* ---------------------------------------------------- dettaglio e notifiche */
 
+/* Il consiglio del modello, tradotto. Chiavi ignote passano invariate invece
+   di sparire: un modello che risponde con una parola nuova deve comunque
+   lasciare qualcosa di leggibile. */
+const CONSIGLI = { candidati: "recApply", valuta: "recMaybe", lascia_perdere: "recSkip" };
+
+function consiglio(chiave) {
+  if (!chiave) return "";
+  const testo = CONSIGLI[chiave] ? t(CONSIGLI[chiave]) : String(chiave).replace(/_/g, " ");
+  return `<span class="chip consiglio ${esc(chiave)}">${esc(testo)}</span>`;
+}
+
 function componentRows(breakdown) {
   return (breakdown.components || []).map((c) => `
     <div class="comp ${c.evaluated ? "" : "off"}">
@@ -2063,8 +2200,57 @@ function componentRows(breakdown) {
     </div>`).join("");
 }
 
+/* Conferma in sovrapposizione, al posto di `confirm()` del browser.
+   Quella finestra non si puo' impaginare, ignora il tema, mostra l'indirizzo
+   del sito come se fosse un avviso di sicurezza e su telefono compare in cima
+   allo schermo, lontana dal dito. Qui invece e' la stessa scheda del resto
+   dell'applicazione, e c'e' spazio per dire cosa si perde davvero.
+
+   Restituisce una promessa: `true` solo se si preme il pulsante di conferma.
+   Fondale, Esc e il pulsante di annullamento passano tutti da `closeOverlay`,
+   che scioglie la promessa con `false` - cosi' nessuna via d'uscita lascia
+   l'attesa appesa. */
+function chiediConferma({ titolo, testo = "", conferma, pericolo = true }) {
+  return new Promise((risolvi) => {
+    // Una conferma gia' aperta decade: vale come annullata.
+    if (state.conferma) { const p = state.conferma; state.conferma = null; p(false); }
+    state.conferma = risolvi;
+
+    $("#overlay").innerHTML = `
+      <div class="modal-scrim">
+        <div class="backdrop" data-close-modal></div>
+        <div class="modal conferma" role="alertdialog" aria-modal="true" aria-labelledby="conferma-titolo">
+          <div class="modal-head">
+            <span class="conferma-mark ${pericolo ? "bad" : ""}">
+              ${svg(pericolo ? ICONS.trash : ICONS.check, 17, 'stroke-width="1.8"')}</span>
+            <div>
+              <h2 id="conferma-titolo">${esc(titolo)}</h2>
+              ${testo ? `<p>${esc(testo)}</p>` : ""}
+            </div>
+          </div>
+          <div class="modal-foot">
+            <button class="btn" type="button" data-close-modal>${t("modalCancel")}</button>
+            <button class="btn ${pericolo ? "danger" : "primary"}" type="button" id="conferma-si">${esc(conferma)}</button>
+          </div>
+        </div>
+      </div>`;
+
+    $("#conferma-si").onclick = () => {
+      state.conferma = null;
+      closeOverlay();
+      risolvi(true);
+    };
+    // Il cursore va sull'uscita di sicurezza: un Invio distratto non deve
+    // cancellare niente.
+    $("[data-close-modal].btn")?.focus();
+  });
+}
+
 function closeOverlay() {
   $("#overlay").innerHTML = "";
+  // Chi aspettava una risposta la riceve comunque: senza, chiudere col fondale
+  // o con Esc lasciava la promessa sospesa per sempre.
+  if (state.conferma) { const p = state.conferma; state.conferma = null; p(false); }
   state.overlayRedraw = null;
   state.pendingJobStatus = null;
   state.pendingReason = null;
@@ -2150,12 +2336,18 @@ async function openJob(id, ritorno) {
                 ${svg(ICONS.spark, 15, 'stroke-width="1.8"')}
                 <b>${esc(cap(llm.provider || "modello"))}: ${llm.score}%</b>
                 <span class="chip">${t("lexical")} ${llm.lexical_score}%  ·  ${t("weightLbl")} ${llm.weight}%</span>
+                ${consiglio(llm.recommendation)}
               </div>
               <p>${esc(llm.reasoning || "")}</p>
+              ${llm.experience_note ? `<p class="llm-nota">${esc(llm.experience_note)}</p>` : ""}
               ${(llm.key_matches || []).length || (llm.key_gaps || []).length ? `<ul class="verdetto">
                 ${(llm.key_matches || []).map((x) => `<li class="pro">${esc(x)}</li>`).join("")}
                 ${(llm.key_gaps || []).map((x) => `<li class="contro">${esc(x)}</li>`).join("")}
               </ul>` : ""}
+              ${(llm.concerns || []).length ? `<div class="llm-dubbi">
+                <b>${t("aiConcerns")}</b>
+                <ul>${llm.concerns.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>
+              </div>` : ""}
             </div>` : ""}
 
             ${(b.matched_skills || []).length ? `<h3>${t("matchedSkills")}</h3>
@@ -2306,6 +2498,97 @@ function collegaRimozione(jobId, job) {
   };
 }
 
+/* Fa accartocciare una riga fino a sparire, lasciando che quelle sotto salgano
+   a prenderne il posto.
+
+   L'altezza va fissata in pixel prima di azzerarla: da `auto` non si anima, e
+   senza quel passaggio la riga sparirebbe di scatto. Il margine negativo serve
+   allo spazio fra le righe: `gap` non e' animabile, e senza compensarlo le
+   righe sotto arrivavano in fondo alla discesa e poi facevano un salto secco
+   di nove pixel. */
+function animaUscita(riga) {
+  if (matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    riga.remove();
+    return Promise.resolve();
+  }
+  return new Promise((fine) => {
+    const spazio = parseFloat(getComputedStyle(riga.parentElement).rowGap) || 0;
+    riga.style.height = `${riga.offsetHeight}px`;
+    riga.getBoundingClientRect();   // il browser deve vedere l'altezza di partenza
+    riga.classList.add("in-uscita");
+    riga.style.height = "0px";
+    if (riga.nextElementSibling) riga.style.marginBottom = `-${spazio}px`;
+    else if (riga.previousElementSibling) riga.style.marginTop = `-${spazio}px`;
+
+    let concluso = false;
+    const chiudi = () => {
+      if (concluso) return;
+      concluso = true;
+      riga.remove();
+      fine();
+    };
+    riga.addEventListener("transitionend", (e) => {
+      if (e.propertyName === "height") chiudi();
+    });
+    // Rete di sicurezza: se la transizione non parte - scheda in secondo piano,
+    // animazioni disattivate dal sistema - la riga sparisce lo stesso.
+    setTimeout(chiudi, 600);
+  });
+}
+
+/* Manda via il pannello scorrendo verso destra, invece di ridisegnarlo sul
+   vuoto. Quando non resta niente da elencare, la cosa piu' sensata che il
+   pannello possa fare e' andarsene: un riquadro "nessuna notifica" comparso al
+   posto dell'ultima riga si legge come un ricaricamento, non come una fine. */
+function chiudiPannello() {
+  const scrim = document.querySelector("#overlay .scrim");
+  if (!scrim || matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    closeOverlay();
+    return Promise.resolve();
+  }
+  return new Promise((fine) => {
+    scrim.classList.add("in-chiusura");
+    let concluso = false;
+    const chiudi = () => {
+      if (concluso) return;
+      concluso = true;
+      closeOverlay();
+      fine();
+    };
+    scrim.querySelector(".drawer")?.addEventListener("animationend", chiudi);
+    // Rete di sicurezza, come per l'uscita delle righe.
+    setTimeout(chiudi, 600);
+  });
+}
+
+/* Toglie dall'elenco gli avvisi di una singola offerta. Niente conferma, come
+   per lo svuotamento totale: si cancella il registro degli avvisi, mentre
+   l'offerta e lo storico delle candidature restano dove sono. */
+async function eliminaNotifica(jobId, riga) {
+  // La richiesta parte subito e l'animazione le corre accanto: aspettare la
+  // risposta prima di muovere la riga si vedrebbe come un ritardo fra il tocco
+  // e l'effetto. L'esito si raccoglie qui per non lasciare un rifiuto senza
+  // ascoltatori mentre l'animazione e' in corso.
+  const richiesta = api(`/api/notifications/${jobId}`, { method: "DELETE" })
+    .then(() => null, (err) => err);
+
+  state.notifiche = (state.notifiche || []).filter((n) => n.job_id !== jobId);
+
+  // Era l'ultima: accartocciare la riga per poi restare davanti a un pannello
+  // vuoto sarebbero due animazioni per un gesto solo. Se ne va il pannello.
+  if (!state.notifiche.length) await chiudiPannello();
+  else if (riga) await animaUscita(riga);
+
+  const errore = await richiesta;
+  if (errore) {
+    toast(errore.message, "bad");
+    openNotifications();          // lo stato buono e' quello del server
+    return;
+  }
+  toast(t("notifDeleted"));
+  loadStatus();
+}
+
 async function openNotifications(precaricate) {
   // Tornando indietro dal dettaglio si riusa l'elenco gia' in memoria: una
   // seconda lettura dal server farebbe lampeggiare il pannello per nulla.
@@ -2340,6 +2623,9 @@ async function openNotifications(precaricate) {
                 <b>${esc(n.title)}</b>
                 <span>${esc([n.company, n.location, n.channel, timeAgo(n.sent_at)].filter(Boolean).join("  ·  "))}</span>
               </div>
+              <button class="scarta" type="button" data-del-notif="${n.job_id}"
+                title="${t("delNotif")}" aria-label="${t("delNotif")}">
+                ${svg(ICONS.cross, 12, 'stroke-width="2.4"')}</button>
             </div>`).join("")}
           </div>` : `<div class="empty" style="padding:40px 0 0">
             <div class="glyph">${svg(ICONS.bell, 20, 'stroke-width="1.6"')}</div>
@@ -2357,9 +2643,12 @@ async function openNotifications(precaricate) {
     // avvisi, mentre offerte e storico delle candidature restano intatti.
     try {
       const r = await api("/api/notifications", { method: "DELETE" });
+      state.notifiche = [];
+      // Una sola animazione: il pannello scorre via. Ridisegnarlo per mostrare
+      // che e' vuoto sarebbe il ricaricamento che si vuole evitare.
+      await chiudiPannello();
       toast(t("clearAllDone").replace("{n}", r.deleted), "ok");
-      await loadStatus();
-      openNotifications();
+      loadStatus();
     } catch (e) { toast(e.message, "bad"); }
   };
 
@@ -2507,6 +2796,12 @@ function wire() {
 
     const motivo = e.target.closest("[data-reason]");
     if (motivo && state.pendingReason) { state.pendingReason(motivo.dataset.reason, motivo); return; }
+
+    // Prima della riga dell'avviso: la delega intercetta ogni clic dentro
+    // `.notif`, e senza questo controllo la X aprirebbe l'offerta invece di
+    // togliere la notifica.
+    const scarta = e.target.closest("[data-del-notif]");
+    if (scarta) { eliminaNotifica(+scarta.dataset.delNotif, scarta.closest(".notif")); return; }
 
     const avviso = e.target.closest(".notif[data-job]");
     if (avviso) { openJob(+avviso.dataset.job, () => openNotifications(state.notifiche)); return; }

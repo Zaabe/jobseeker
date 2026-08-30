@@ -5,12 +5,12 @@
    passano sempre dalla rete, altrimenti l'interfaccia mostrerebbe offerte
    vecchie facendole passare per aggiornate.
 
-   ATTENZIONE: il nome della cache è cambiato da jobseeker-v1 a
-   jobseeker-v2. Serve, altrimenti i browser che hanno già visitato la
-   versione precedente continuerebbero a servire dalla cache il vecchio
-   style.css e il vecchio app.js, e la nuova interfaccia non comparirebbe. */
+   ATTENZIONE: il nome della cache va cambiato a ogni versione. Serve,
+   altrimenti i browser che hanno già visitato la versione precedente
+   continuerebbero a servire dalla cache il vecchio style.css e il vecchio
+   app.js, e la nuova interfaccia non comparirebbe. */
 
-const CACHE = "jobseeker-v2";
+const CACHE = "jobseeker-v3";
 const SHELL = [
   "/",
   "/static/style.css",
@@ -42,11 +42,19 @@ self.addEventListener("fetch", (event) => {
   if (url.origin !== self.location.origin) return;
   // I dati vivi non vengono mai serviti dalla cache.
   if (url.pathname.startsWith("/api/")) return;
+  // L'accesso non passa mai di qui. Servirlo dalla cache mostrerebbe un modulo
+  // vecchio, e intercettarlo toglierebbe al browser la possibilità di seguire
+  // il reindirizzamento come farebbe normalmente.
+  if (url.pathname === "/login" || url.pathname === "/logout") return;
 
   event.respondWith(
     fetch(request)
       .then((response) => {
-        if (response.ok) {
+        // `redirected` esclude il caso che conta: sessione scaduta, il server
+        // rimanda alla pagina di accesso, e senza questo controllo quella
+        // pagina finirebbe in cache sotto la chiave "/" — da lì in poi
+        // l'applicazione si aprirebbe sul modulo di login anche da connessa.
+        if (response.ok && !response.redirected) {
           const copy = response.clone();
           caches.open(CACHE).then((cache) => cache.put(request, copy));
         }

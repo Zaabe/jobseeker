@@ -9,15 +9,18 @@ from __future__ import annotations
 import io
 import re
 from dataclasses import dataclass, field
+from datetime import date
 from typing import Any
 
 from .skills import (
+    education_level_value,
     extract_education_fields,
     extract_education_level,
     extract_languages,
     extract_roles,
     extract_required_years,
     extract_skills,
+    resolve_skill,
 )
 from .text import normalize, normalize_lines
 
@@ -65,7 +68,16 @@ def _extract_pdf(data: bytes) -> str:
         raise CVParseError("libreria pypdf non disponibile") from exc
     try:
         reader = PdfReader(io.BytesIO(data))
-        pages = [page.extract_text() or "" for page in reader.pages]
+        # Prima in modalita' "layout": tiene conto della posizione sulla pagina,
+        # quindi nei curriculum impaginati a due colonne o dentro tabelle non
+        # intreccia le righe. E' quello che rompeva tutto il resto: con le date
+        # separate dal loro incarico non si riconosce ne' la sezione ne'
+        # l'intervallo. Non tutti i PDF la reggono, e su alcuni restituisce
+        # meno testo dell'estrazione semplice: in quel caso si torna indietro.
+        pages = _pagine(reader, "layout")
+        semplice = _pagine(reader, "")
+        if len("".join(semplice).strip()) > len("".join(pages).strip()) * 1.15:
+            pages = semplice
     except Exception as exc:
         raise CVParseError(f"PDF illeggibile: {exc}") from exc
     text = "\n".join(pages).strip()
@@ -75,6 +87,18 @@ def _extract_pdf(data: bytes) -> str:
             "Esporta il curriculum in PDF dal documento originale, oppure caricalo in .docx"
         )
     return text
+
+
+def _pagine(reader: Any, modalita: str) -> list[str]:
+    """Testo pagina per pagina, tollerando i PDF che rifiutano una modalita'."""
+    fuori = []
+    for page in reader.pages:
+        try:
+            fuori.append(page.extract_text(extraction_mode=modalita) if modalita
+                         else page.extract_text() or "")
+        except Exception:
+            fuori.append("")
+    return [p or "" for p in fuori]
 
 
 def _extract_docx(data: bytes) -> str:
@@ -132,7 +156,10 @@ _NUMERIC_RANGE_RE = re.compile(
     re.IGNORECASE,
 )
 
-_CURRENT_YEAR = 2026
+# Letto dall'orologio, non scritto a mano: un anno fisso qui dentro fa
+# sbagliare tutti gli intervalli aperti ("2019 - oggi") dal primo gennaio
+# successivo, e nessuno se ne accorge finche' i conti non tornano piu'.
+_CURRENT_YEAR = date.today().year
 
 
 def _merge_intervals(intervals: list[tuple[int, int]]) -> int:
@@ -173,14 +200,63 @@ _SECTION_HEADERS: list[tuple[str, list[str]]] = [
     ]),
 ]
 
-_HEADER_RE = re.compile(
-    r"^[\s\W]{0,4}(" + "|".join(
-        re.escape(h) for _, hs in _SECTION_HEADERS for h in sorted(hs, key=len, reverse=True)
-    ) + r")[\s\W]{0,4}$",
-    re.IGNORECASE | re.MULTILINE,
-)
+_ELENCO_INTESTAZIONI = "|".join(
+    re.escape(h) for _, hs in _SECTION_HEADERS for h in sorted(hs, key=len, reverse=True))
+
+# L'intestazione da sola sulla sua riga: il caso pulito.
+_HEADER_RE = re.compile(rf"^[\s\W]{{0,4}}({_ELENCO_INTESTAZIONI})[\s\W]{{0,4}}$", re.IGNORECASE)
+# L'intestazione all'inizio della riga, seguita da altro. Vale solo alle
+# condizioni di `_apre_sezione`.
+_HEADER_INIZIO_RE = re.compile(rf"^[\s\W]{{0,4}}({_ELENCO_INTESTAZIONI})\b", re.IGNORECASE)
 
 _HEADER_KIND = {h: kind for kind, hs in _SECTION_HEADERS for h in hs}
+
+# Formule che non possono essere l'inizio di una frase normale: se una riga
+# comincia cosi' ed e' seguita da altro, e' un titolo di sezione con accanto la
+# prima voce. Le parole singole restano fuori di proposito: "Esperienza nella
+# gestione di laboratori" e' una riga di requisiti, non un'intestazione.
+_INTESTAZIONI_SICURE = frozenset({
+    "esperienza professionale", "esperienze professionali", "esperienza lavorativa",
+    "esperienze lavorative", "work experience", "professional experience",
+    "employment history", "career history", "attivita lavorativa",
+    "percorso professionale", "istruzione e formazione", "formazione accademica",
+    "titoli di studio", "percorso formativo", "academic background",
+    "capacita e competenze",
+})
+
+
+def _apre_sezione(riga: str) -> tuple[str | None, str]:
+    """Dice se la riga apre una sezione, e cosa resta della riga dopo il titolo.
+
+    Il caso difficile e' l'intestazione che condivide la riga con la prima
+    voce - "ESPERIENZA LAVORATIVA 01/2023 - 06/2024 Tecnico" - che i template
+    grafici producono di continuo e che prima non veniva riconosciuta: senza
+    sezioni, gli anni di studio finivano sommati a quelli di lavoro.
+    """
+    pulita = normalize_lines(riga).strip()
+    if not pulita:
+        return None, ""
+
+    intera = _HEADER_RE.match(pulita)
+    if intera:
+        return _HEADER_KIND.get(intera.group(1).strip(), "altro"), ""
+
+    inizio = _HEADER_INIZIO_RE.match(pulita)
+    if not inizio:
+        return None, ""
+    titolo = inizio.group(1).strip()
+    resto = pulita[inizio.end():].strip(" \t:.-\u2013\u2014|\u00b7\u2022")
+    if not resto:
+        return _HEADER_KIND.get(titolo, "altro"), ""
+
+    # Due sole vie per accettarla: scritta in maiuscolo nell'originale, oppure
+    # una formula inequivocabile.
+    lettere = [c for c in riga if c.isalpha()]
+    quante = sum(1 for c in titolo if c.isalpha())
+    maiuscola = quante > 0 and all(c.isupper() for c in lettere[:quante])
+    if maiuscola or titolo in _INTESTAZIONI_SICURE:
+        return _HEADER_KIND.get(titolo, "altro"), resto
+    return None, ""
 
 
 def split_sections(text: str) -> list[tuple[str, str]]:
@@ -189,18 +265,24 @@ def split_sections(text: str) -> list[tuple[str, str]]:
     Se non riconosce nessuna intestazione restituisce il testo come sezione
     unica di tipo sconosciuto, e chi chiama decide come comportarsi.
     """
-    normalized = normalize_lines(text)
-    matches = list(_HEADER_RE.finditer(normalized))
-    if not matches:
-        return [("sconosciuto", normalized)]
-    sections: list[tuple[str, str]] = []
-    if matches[0].start() > 0:
-        sections.append(("intestazione", normalized[: matches[0].start()]))
-    for i, match in enumerate(matches):
-        kind = _HEADER_KIND.get(match.group(1).lower().strip(), "altro")
-        end = matches[i + 1].start() if i + 1 < len(matches) else len(normalized)
-        sections.append((kind, normalized[match.end() : end]))
-    return sections
+    sezioni: list[tuple[str, str]] = []
+    tipo = "intestazione"
+    corpo: list[str] = []
+    trovata = False
+
+    for riga in text.splitlines():
+        apre, resto = _apre_sezione(riga)
+        if apre is None:
+            corpo.append(normalize_lines(riga))
+            continue
+        trovata = True
+        sezioni.append((tipo, "\n".join(corpo).strip()))
+        tipo, corpo = apre, ([resto] if resto else [])
+    sezioni.append((tipo, "\n".join(corpo).strip()))
+
+    if not trovata:
+        return [("sconosciuto", normalize_lines(text))]
+    return [(k, b) for k, b in sezioni if b or k != "intestazione"]
 
 
 def estimate_years(text: str) -> float:
@@ -242,9 +324,38 @@ def estimate_years(text: str) -> float:
     months = _merge_intervals(intervals)
     if months:
         return round(months / 12.0, 1)
-    # Nessun intervallo riconosciuto: si prova la dichiarazione esplicita.
+    # Nessun intervallo: molti curriculum scrivono un anno solo e accanto la
+    # durata ("2023 Tirocinio in laboratorio (6 mesi)"). Prima non contava
+    # niente e il candidato risultava senza esperienza.
+    durate = _durate_dichiarate(normalized)
+    if durate:
+        return round(durate / 12.0, 1)
+    # Ultima possibilita': la dichiarazione esplicita, "3 anni di esperienza".
     declared = extract_required_years(text)
     return float(declared) if declared else 0.0
+
+
+# "(6 mesi)", "18 mesi", "2 anni": la durata scritta a parole accanto a una voce.
+_DURATA_VOCE = re.compile(r"\b(\d{1,2})\s*(mesi|mese|anni|anno)\b", re.IGNORECASE)
+_HA_ANNO = re.compile(r"\b(?:19|20)\d{2}\b")
+
+
+def _durate_dichiarate(testo: str) -> int:
+    """Somma in mesi le durate scritte accanto a una voce datata.
+
+    Solo righe che portano anche un anno: senza quel vincolo si sommerebbe
+    anche "cerco un impiego di almeno 2 anni" dalla lettera di presentazione.
+    """
+    totale = 0
+    for riga in testo.splitlines():
+        if not _HA_ANNO.search(riga):
+            continue
+        for match in _DURATA_VOCE.finditer(riga):
+            n = int(match.group(1))
+            mesi = n if match.group(2).startswith("mes") else n * 12
+            if 0 < mesi <= 12 * 45:
+                totale += mesi
+    return totale
 
 
 # --------------------------------------------------------------------------
@@ -365,9 +476,97 @@ class CVProfile:
         }
 
 
+# Scarto oltre il quale due letture degli anni di esperienza non si possono
+# considerare d'accordo. Sotto l'anno e' arrotondamento; sopra, uno dei due ha
+# letto il curriculum in un modo che l'altro non riconosce.
+SCARTO_ANNI_TOLLERATO = 1.0
+
+
+def apply_reading(profile: CVProfile, reading: Any) -> dict[str, Any]:
+    """Fonde nel profilo la lettura del modello, e riporta i disaccordi.
+
+    Le euristiche restano la base: sono verificabili riga per riga e funzionano
+    senza chiavi. Il modello aggiunge quello che il dizionario non copre e
+    corregge gli anni dove le date da sole non bastavano.
+
+    Dove le due letture non vanno d'accordo il disaccordo viene registrato
+    invece che risolto in silenzio: e' l'unico modo che ha chi guarda il
+    profilo di accorgersi che il modello ha preso un abbaglio.
+    """
+    note: dict[str, Any] = {"fonte": "modello", "divergenze": [], "esperienze": [],
+                            "extra_tags": [], "avviso": ""}
+    if reading is None:
+        note["fonte"] = "euristiche"
+        return note
+
+    # -- competenze: quelle note entrano nel confronto, le altre restano
+    #    etichette libere, che e' comunque meglio di buttarle via.
+    extra: list[str] = []
+    for grezza in getattr(reading, "skills", []) or []:
+        pulita = (grezza or "").strip()[:60]
+        if not pulita:
+            continue
+        canonica = resolve_skill(pulita)
+        if canonica:
+            if canonica not in profile.skills:
+                profile.skills.append(canonica)
+        elif pulita.lower() not in {e.lower() for e in extra}:
+            extra.append(pulita)
+    note["extra_tags"] = extra
+
+    for grezza in getattr(reading, "languages", []) or []:
+        for lingua in extract_languages(grezza or ""):
+            if lingua not in profile.languages:
+                profile.languages.append(lingua)
+
+    for grezza in getattr(reading, "roles", []) or []:
+        for ruolo in extract_roles(grezza or ""):
+            if ruolo not in profile.roles:
+                profile.roles.append(ruolo)
+
+    for grezza in getattr(reading, "education_fields", []) or []:
+        for campo in extract_education_fields(grezza or ""):
+            if campo not in profile.education_fields:
+                profile.education_fields.append(campo)
+
+    # -- titolo di studio
+    etichetta = (getattr(reading, "education_level", "") or "").strip()
+    livello = education_level_value(etichetta)
+    if livello:
+        if profile.education_level and profile.education_level != livello:
+            note["divergenze"].append(
+                f"titolo di studio: le date e le parole del curriculum dicono "
+                f"«{profile.education_label}», il modello legge «{etichetta}»")
+        profile.education_level, profile.education_label = livello, etichetta
+
+    # -- anni di esperienza
+    anni = float(getattr(reading, "years_experience", 0) or 0)
+    if anni > 0 and profile.years_experience > 0 and \
+            abs(anni - profile.years_experience) >= SCARTO_ANNI_TOLLERATO:
+        note["divergenze"].append(
+            f"anni di esperienza: dalle date risultano {profile.years_experience:g}, "
+            f"il modello ne conta {anni:g}")
+        profile.years_experience = anni
+    elif anni > 0 and profile.years_experience <= 0:
+        profile.years_experience = anni
+    elif anni <= 0 and profile.years_experience > 0:
+        note["divergenze"].append(
+            f"anni di esperienza: dalle date risultano {profile.years_experience:g}, "
+            "il modello non ne ha riconosciuto nessuno - tenuto il conto delle date")
+
+    note["esperienze"] = [str(x)[:160] for x in (getattr(reading, "experience_items", []) or [])[:10]]
+    note["avviso"] = (getattr(reading, "notes", "") or "")[:300]
+    return note
+
+
 def build_profile(text: str) -> CVProfile:
     """Ricava dal testo del curriculum tutto cio' che serve al punteggio."""
-    level, label = extract_education_level(text)
+    # Il titolo di studio si cerca dentro la sezione che lo riguarda, non in
+    # tutto il documento: un dottorato citato fra le pubblicazioni o nel
+    # racconto di un incarico faceva risultare dottore chi ha la maturita'.
+    # Senza sezioni riconosciute si ripiega sul testo intero, com'era prima.
+    formazione = "\n".join(b for k, b in split_sections(text) if k == "formazione")
+    level, label = extract_education_level(formazione or text)
     return CVProfile(
         raw_text=text,
         skills=extract_skills(text),

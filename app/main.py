@@ -6,18 +6,22 @@ il browser e funziona.
 """
 from __future__ import annotations
 
-import base64
+import asyncio
+import hashlib
+import hmac
 import json
 import logging
 import secrets
+import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from typing import Any
+from urllib.parse import quote
 
 import httpx
-from fastapi import Body, FastAPI, File, HTTPException, Query, UploadFile
+from fastapi import Body, FastAPI, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi import Response
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -666,8 +670,9 @@ def list_applications(status: str = "") -> dict[str, Any]:
 def list_cvs() -> list[dict[str, Any]]:
     rows = db.query(
         "SELECT id, name, filename, mime, skills_json, education_json, titles_json, "
-        "languages_json, extra_tags_json, years_experience, is_active, is_manual, "
-        "uploaded_at, LENGTH(raw_text) AS text_length FROM cv ORDER BY uploaded_at DESC"
+        "languages_json, extra_tags_json, manual_tags_json, parse_json, years_experience, "
+        "is_active, is_manual, uploaded_at, LENGTH(raw_text) AS text_length "
+        "FROM cv ORDER BY uploaded_at DESC"
     )
     return db.rows_to_dicts(rows)
 
@@ -686,6 +691,10 @@ async def upload_cv(file: UploadFile = File(...), name: str = "") -> dict[str, A
         raise HTTPException(400, str(exc)) from exc
 
     profile = build_profile(text)
+    # Seconda lettura, se il livello semantico e' configurato: il dizionario da
+    # solo vede quello che gia' conosce, e su un curriculum fuori dal suo ambito
+    # riconosce pochissimo. Senza chiave non succede niente e resta la prima.
+    note = await pipeline.leggi_curriculum(text, profile)
     stored = profile.to_storage()
     # Il nome della persona letto dal documento e' un'etichetta molto migliore
     # del nome del file, che di solito e' lungo e pieno di date. Se il
@@ -698,18 +707,22 @@ async def upload_cv(file: UploadFile = File(...), name: str = "") -> dict[str, A
 
     cursor = db.execute(
         "INSERT INTO cv(name, filename, mime, raw_text, skills_json, education_json, titles_json, "
-        "languages_json, years_experience, is_active, uploaded_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+        "languages_json, extra_tags_json, parse_json, years_experience, is_active, uploaded_at) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (etichetta, target.name, file.content_type, text,
          json.dumps(stored["skills"], ensure_ascii=False),
          json.dumps(stored["education"], ensure_ascii=False),
          json.dumps(stored["titles"], ensure_ascii=False),
          json.dumps(stored["languages"], ensure_ascii=False),
+         json.dumps(note.get("extra_tags", []), ensure_ascii=False),
+         json.dumps(note, ensure_ascii=False),
          stored["years_experience"], 0, db.utcnow()),
     )
     activate_cv(cursor.lastrowid)
     row = db.row_to_dict(db.query_one(
         "SELECT id, name, filename, skills_json, education_json, titles_json, languages_json, "
-        "years_experience, is_active, uploaded_at FROM cv WHERE id = ?", (cursor.lastrowid,)))
+        "extra_tags_json, manual_tags_json, parse_json, years_experience, is_active, uploaded_at "
+        "FROM cv WHERE id = ?", (cursor.lastrowid,)))
     row["rescored"] = len(pipeline.score_jobs(force=True))
     return row
 
@@ -742,8 +755,8 @@ def create_manual_profile(payload: ManualProfileIn) -> dict[str, Any]:
     skills, extra = _split_tags(payload.tags)
     cursor = db.execute(
         "INSERT INTO cv(name, filename, mime, raw_text, skills_json, education_json, "
-        "titles_json, languages_json, extra_tags_json, years_experience, is_active, "
-        "is_manual, uploaded_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        "titles_json, languages_json, extra_tags_json, manual_tags_json, years_experience, "
+        "is_active, is_manual, uploaded_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (payload.name or "Profilo manuale", "", "", "",
          json.dumps(skills, ensure_ascii=False),
          json.dumps({"level": payload.education_level, "label": payload.education_label,
@@ -751,12 +764,31 @@ def create_manual_profile(payload: ManualProfileIn) -> dict[str, Any]:
          json.dumps([], ensure_ascii=False),
          json.dumps(payload.languages, ensure_ascii=False),
          json.dumps(extra, ensure_ascii=False),
+         json.dumps(skills + extra, ensure_ascii=False),
          payload.years_experience, 0, 1, db.utcnow()),
     )
     activate_cv(cursor.lastrowid)
     pipeline.invalidate()
     return {"id": cursor.lastrowid, "skills": skills, "extra_tags": extra,
             "rescored": len(pipeline.score_jobs(force=True))}
+
+
+def _etichette_a_mano(riga: Any, adesso: list[str]) -> list[str]:
+    """Quali fra le etichette attuali sono state aggiunte a mano.
+
+    Si ricava per differenza: quello che c'e' ora e prima non c'era l'ha scritto
+    l'utente. Le etichette tolte escono anche da qui, altrimenti l'elenco
+    crescerebbe per sempre con nomi che non esistono piu'.
+    """
+    def leggi(colonna: str) -> set[str]:
+        try:
+            return set(json.loads(riga[colonna] or "[]"))
+        except (ValueError, TypeError):
+            return set()
+
+    precedenti = leggi("skills_json") | leggi("extra_tags_json")
+    a_mano = leggi("manual_tags_json") | (set(adesso) - precedenti)
+    return [t for t in adesso if t in a_mano]
 
 
 def _split_tags(tags: list[str]) -> tuple[list[str], list[str]]:
@@ -794,6 +826,8 @@ def update_cv(cv_id: int, payload: CVPatch) -> dict[str, Any]:
         skills, extra = _split_tags(payload.tags)
         updates.append("skills_json = ?"); params.append(json.dumps(skills, ensure_ascii=False))
         updates.append("extra_tags_json = ?"); params.append(json.dumps(extra, ensure_ascii=False))
+        updates.append("manual_tags_json = ?")
+        params.append(json.dumps(_etichette_a_mano(row, skills + extra), ensure_ascii=False))
     if payload.years_experience is not None:
         updates.append("years_experience = ?"); params.append(max(0.0, payload.years_experience))
     if payload.languages is not None:
@@ -815,7 +849,8 @@ def update_cv(cv_id: int, payload: CVPatch) -> dict[str, Any]:
 
     aggiornato = db.row_to_dict(db.query_one(
         "SELECT id, name, skills_json, education_json, languages_json, extra_tags_json, "
-        "years_experience, is_active, is_manual FROM cv WHERE id = ?", (cv_id,)))
+        "manual_tags_json, parse_json, years_experience, is_active, is_manual "
+        "FROM cv WHERE id = ?", (cv_id,)))
     # Il ricalcolo serve subito: cambiare le competenze cambia tutti i punteggi.
     aggiornato["rescored"] = len(pipeline.score_jobs(force=True)) if row["is_active"] else 0
     return aggiornato
@@ -935,6 +970,22 @@ def clear_notifications() -> dict[str, int]:
     return {"deleted": cursor.rowcount}
 
 
+@app.delete("/api/notifications/{job_id}")
+def clear_notification(job_id: int) -> dict[str, int]:
+    """Toglie dall'elenco gli avvisi di una singola offerta.
+
+    Cancella tutte le righe di quell'offerta, non una: l'elenco raggruppa per
+    offerta mentre il database tiene una riga per canale (desktop, email,
+    Telegram), e cancellarne una sola lascerebbe la voce dov'era, arrivata
+    dagli altri canali.
+
+    Come per lo svuotamento totale, l'offerta torna notificabile: il controllo
+    anti-ripetizione si basa proprio su queste righe.
+    """
+    cursor = db.execute("DELETE FROM notification WHERE job_id = ?", (job_id,))
+    return {"deleted": cursor.rowcount}
+
+
 @app.post("/api/notifications/seen")
 def mark_seen(ids: list[int] | None = Body(None, embed=True)) -> dict[str, int]:
     if ids:
@@ -986,9 +1037,15 @@ def get_settings() -> dict[str, Any]:
             "has_chat": bool(SECRETS.get("telegram_chat_id")),
         },
         "adzuna_configured": bool(SECRETS.get("adzuna_app_id") and SECRETS.get("adzuna_app_key")),
+        # Serve all'interfaccia per decidere se ha senso mostrare "Esci":
+        # senza password non c'e' nessuna sessione da chiudere.
+        "auth": bool(AUTH_PASSWORD),
         "llm": {
             "provider": chosen,
             "available": llm_available,
+            # Quante offerte sopra soglia il modello deve ancora leggere: e'
+            # l'unico modo di vedere da fuori se sta lavorando.
+            "pending": pipeline.in_attesa_di_giudizio(),
             "reason": llm_reason,
             "model": db.get_setting("llm_model", "") or llm.provider_info(chosen)["model"],
             "default_model": llm.provider_info(chosen)["model"],
@@ -1074,38 +1131,152 @@ def healthz() -> dict[str, str]:
     return {"status": "ok"}
 
 
+# --------------------------------------------------------------------------
+# Accesso
+# --------------------------------------------------------------------------
+# La sessione sta in un cookie firmato, non in HTTP Basic. Non e' una
+# questione estetica: la finestra di Basic la disegna il browser, non si puo'
+# uscire se non chiudendo tutto, e chi preme "Annulla" resta su una pagina di
+# errore da cui il browser non ripropone piu' le credenziali. Con un service
+# worker installato non le ripropone proprio: una risposta che passa da lui
+# non fa comparire la finestra di sistema, e l'unico modo di rientrare
+# diventava disinstallare l'applicazione.
+#
+# Nel cookie c'e' solo la scadenza e la sua firma. Non contiene la password,
+# non c'e' niente da leggere e niente da riutilizzare altrove.
+
+COOKIE_SESSIONE = "jobseeker_sessione"
+DURATA_SESSIONE = 30 * 24 * 3600          # secondi
+# Attesa dopo un tentativo sbagliato: rende poco pratico provare password a
+# raffica, e a chi la sa costa una frazione di secondo una volta sola.
+ATTESA_TENTATIVO_FALLITO = 0.6
+# Raggiungibili senza aver fatto l'accesso. Il foglio di stile serve alla
+# pagina di login stessa: e' presentazione, non contiene dati.
+PERCORSI_LIBERI = frozenset({"/healthz", "/login", "/logout", "/static/style.css"})
+
+_chiave_firma: bytes | None = None
+
+
+def _chiave() -> bytes:
+    """Chiave con cui si firmano i cookie di sessione.
+
+    Il seme casuale vive nel database, cosi' un riavvio non butta fuori chi ha
+    gia' fatto l'accesso. La password entra nella chiave di proposito:
+    cambiandola, tutte le sessioni aperte smettono di valere.
+    """
+    global _chiave_firma
+    if _chiave_firma is None:
+        seme = db.get_setting("session_secret", "")
+        if not seme:
+            # `INSERT OR IGNORE` e poi rilettura, non una scrittura secca: al
+            # primo avvio due richieste in parallelo genererebbero due semi
+            # diversi, e chi si tiene quello sovrascritto firmerebbe cookie che
+            # gli altri thread rifiutano. Cosi' vince il primo e tutti leggono
+            # lo stesso.
+            db.execute("INSERT OR IGNORE INTO setting(key, value) VALUES ('session_secret', ?)",
+                       (secrets.token_urlsafe(32),))
+            seme = db.get_setting("session_secret", "")
+        _chiave_firma = hashlib.sha256(f"{seme}:{AUTH_PASSWORD}".encode("utf-8")).digest()
+    return _chiave_firma
+
+
+def _firma(scadenza: int) -> str:
+    return hmac.new(_chiave(), str(scadenza).encode("ascii"), hashlib.sha256).hexdigest()
+
+
+def _sessione_valida(valore: str) -> bool:
+    scadenza, _, firma = (valore or "").partition(".")
+    if not scadenza.isdigit() or not firma:
+        return False
+    if int(scadenza) <= int(time.time()):
+        return False
+    return secrets.compare_digest(firma, _firma(int(scadenza)))
+
+
+def _credenziali_giuste(utente: str, parola: str) -> bool:
+    """Confronto a tempo costante.
+
+    `compare_digest` e non `==` perche' un confronto fra stringhe esce al primo
+    carattere diverso, e i tempi di risposta rivelerebbero la password un
+    carattere alla volta. Utente vuoto in configurazione significa "qualunque
+    utente": conta solo la password.
+    """
+    utente_ok = secrets.compare_digest(utente, AUTH_USER or utente)
+    return utente_ok and secrets.compare_digest(parola, AUTH_PASSWORD)
+
+
+def _percorso_interno(destinazione: str) -> str:
+    """Filtra la destinazione dopo l'accesso.
+
+    Solo percorsi interni: `//altrosito` e' un indirizzo assoluto, e accettarlo
+    trasformerebbe la pagina di accesso in un trampolino verso qualunque sito.
+    """
+    if destinazione.startswith("/") and not destinazione.startswith("//"):
+        return destinazione
+    return "/"
+
+
+def _connessione_cifrata(request: Request) -> bool:
+    # Dietro il reverse proxy lo schema che conta e' quello dichiarato da lui:
+    # verso l'applicazione la connessione e' comunque HTTP.
+    return (request.headers.get("x-forwarded-proto", "").split(",")[0].strip() == "https"
+            or request.url.scheme == "https")
+
+
+@app.get("/login", include_in_schema=False)
+def login_page() -> FileResponse:
+    return FileResponse(STATIC_DIR / "login.html")
+
+
+@app.post("/login", include_in_schema=False)
+async def login(request: Request, utente: str = Form(""), password: str = Form(""),
+                destinazione: str = Form("/", alias="next")) -> Response:
+    if not AUTH_PASSWORD or not _credenziali_giuste(utente, password):
+        await asyncio.sleep(ATTESA_TENTATIVO_FALLITO)
+        return RedirectResponse("/login?errore=1", status_code=303)
+
+    scadenza = int(time.time()) + DURATA_SESSIONE
+    risposta = RedirectResponse(_percorso_interno(destinazione), status_code=303)
+    risposta.set_cookie(
+        COOKIE_SESSIONE, f"{scadenza}.{_firma(scadenza)}",
+        max_age=DURATA_SESSIONE, httponly=True, samesite="lax", path="/",
+        # `secure` solo dove la connessione lo e' davvero: imporlo sempre
+        # renderebbe impossibile l'accesso in HTTP sulla rete di casa, perche'
+        # il browser scarterebbe il cookie senza dire niente.
+        secure=_connessione_cifrata(request),
+    )
+    return risposta
+
+
+@app.post("/logout", include_in_schema=False)
+def logout() -> Response:
+    risposta = RedirectResponse("/login", status_code=303)
+    risposta.delete_cookie(COOKIE_SESSIONE, path="/")
+    return risposta
+
+
 @app.middleware("http")
 async def richiedi_accesso(request, call_next):
-    """Autenticazione HTTP Basic su tutto, quando c'e' una password.
+    """Protegge tutto quando c'e' una password.
 
     Vale anche per i file statici e per il service worker: proteggere le sole
     API lascerebbe comunque leggere l'interfaccia, e non serve a niente.
 
-    Il confronto usa `compare_digest` perche' un `==` su stringhe esce al primo
-    carattere diverso, e i tempi di risposta rivelerebbero la password un
-    carattere alla volta.
-
-    Attenzione: HTTP Basic manda le credenziali in chiaro (base64 non e'
-    cifratura). Ha senso solo dietro HTTPS: vedi il Caddyfile allegato.
+    Attenzione: il cookie di sessione viaggia in chiaro come qualunque altra
+    intestazione. Ha senso solo dietro HTTPS: vedi il Caddyfile allegato.
     """
-    if not AUTH_PASSWORD or request.url.path == "/healthz":
+    if not AUTH_PASSWORD or request.url.path in PERCORSI_LIBERI:
+        return await call_next(request)
+    if _sessione_valida(request.cookies.get(COOKIE_SESSIONE, "")):
         return await call_next(request)
 
-    intestazione = request.headers.get("authorization", "")
-    if intestazione.startswith("Basic "):
-        try:
-            utente, _, parola = base64.b64decode(intestazione[6:]).decode("utf-8").partition(":")
-        except (ValueError, UnicodeDecodeError):
-            utente, parola = "", ""
-        atteso_utente = secrets.compare_digest(utente, AUTH_USER or utente)
-        if atteso_utente and secrets.compare_digest(parola, AUTH_PASSWORD):
-            return await call_next(request)
-
-    return Response(
-        status_code=401,
-        content="Accesso richiesto",
-        headers={"WWW-Authenticate": 'Basic realm="JobSeeker", charset="UTF-8"'},
-    )
+    # All'interfaccia serve una risposta che il suo codice sappia riconoscere;
+    # a chi sta navigando serve la pagina di accesso, con l'indirizzo di
+    # partenza in coda per ritrovarsi dov'era.
+    if request.url.path.startswith("/api/"):
+        return JSONResponse({"error": "Accesso richiesto"}, status_code=401)
+    partenza = request.url.path + (f"?{request.url.query}" if request.url.query else "")
+    return RedirectResponse(f"/login?next={quote(partenza, safe='')}", status_code=303)
 
 
 @app.middleware("http")
@@ -1120,7 +1291,7 @@ async def no_stale_assets(request, call_next):
     """
     response = await call_next(request)
     percorso = request.url.path
-    if percorso.startswith("/static/") or percorso in ("/", "/sw.js", "/manifest.json"):
+    if percorso.startswith("/static/") or percorso in ("/", "/login", "/sw.js", "/manifest.json"):
         response.headers["Cache-Control"] = "no-cache, must-revalidate"
     return response
 

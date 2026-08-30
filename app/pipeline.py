@@ -16,7 +16,8 @@ from typing import Any, Iterable
 import httpx
 
 from . import db, notify
-from .matching import CVProfile, IdfIndex, JobView, llm, score_job
+from .matching import CVProfile, IdfIndex, JobView, cv_parser, llm, score_job
+from .matching import skills
 from .matching import feedback as fb
 from .matching.cv_parser import CVProfile as Profile
 from .matching.text import is_country_query, job_in_country, normalize, place_matches
@@ -510,6 +511,8 @@ class Pipeline:
             summary["scored"] = len(scored)
             # L'eventuale affinamento semantico avviene prima delle notifiche,
             # cosi' la soglia viene applicata al punteggio definitivo.
+            # Anche a mani vuote: se non e' arrivato niente di nuovo, il
+            # modello usa il giro per smaltire l'arretrato.
             summary["llm_refined"] = await self.refine_with_llm(scored)
             if self.last_llm_error:
                 summary["errors"].append(self.last_llm_error)
@@ -521,15 +524,103 @@ class Pipeline:
 
     # -- livello semantico opzionale ---------------------------------------
 
-    async def refine_with_llm(self, scored: list[dict[str, Any]]) -> int:
-        """Affina con Claude i punteggi delle offerte piu' promettenti.
+    # Offerte che aspettano un giudizio: sopra soglia e senza `llm` nel
+    # dettaglio. Sta qui una volta sola perche' la usano sia il ciclo che il
+    # conteggio mostrato nelle impostazioni.
+    SQL_SENZA_GIUDIZIO = (
+        "SELECT j.id, j.title, j.company, j.description, j.location, j.city, "
+        "       j.country, j.remote, j.department, m.score, m.breakdown_json "
+        "FROM match m JOIN job j ON j.id = m.job_id "
+        "WHERE m.cv_id = ? AND j.is_archived = 0 AND m.score >= ? "
+        "  AND json_extract(m.breakdown_json, '$.llm') IS NULL "
+    )
+
+    # Pausa fra una valutazione e l'altra. Non e' prudenza generica: le chiavi
+    # gratuite concedono una manciata di richieste al minuto, e partire a
+    # raffica significa ricevere errori di quota invece che giudizi.
+    PAUSA_FRA_VALUTAZIONI = 4.0
+
+    def da_valutare(self, soglia: float, quanti: int,
+                    prima: list[int] | None = None) -> list[Any]:
+        """Le offerte da sottoporre al modello, le piu' promettenti per prime.
+
+        Pesca da tutto l'archivio, non solo dalle offerte appena raccolte.
+        Prima lo faceva, e con un archivio da millesettecento annunci gia' in
+        casa il livello semantico restava acceso senza produrre niente: le
+        uniche offerte che poteva vedere erano le poche nuove di quel giro.
+
+        `prima` sono le offerte appena raccolte. Vanno in testa perche' sono
+        quelle su cui sta per partire una notifica, e la soglia di notifica va
+        applicata al punteggio definitivo, non a quello provvisorio.
+        """
+        scelte: list[Any] = []
+        visti: set[int] = set()
+        if prima:
+            segnaposto = ",".join("?" * len(prima))
+            for riga in db.query(
+                    self.SQL_SENZA_GIUDIZIO + f"AND j.id IN ({segnaposto}) "
+                    "ORDER BY m.score DESC LIMIT ?",
+                    (self._cv_id, soglia, *prima, quanti)):
+                scelte.append(riga)
+                visti.add(riga["id"])
+        if len(scelte) < quanti:
+            for riga in db.query(self.SQL_SENZA_GIUDIZIO + "ORDER BY m.score DESC LIMIT ?",
+                                 (self._cv_id, soglia, quanti + len(visti))):
+                if riga["id"] in visti:
+                    continue
+                scelte.append(riga)
+                if len(scelte) >= quanti:
+                    break
+        return scelte
+
+    async def leggi_curriculum(self, testo: str, profilo: Any) -> dict[str, Any]:
+        """Fa rileggere il curriculum al modello, se e' configurato.
+
+        Senza chiave, o con il livello semantico spento, non succede nulla e il
+        profilo resta quello delle euristiche: e' una strada completa, non un
+        ripiego. Con la chiave, le due letture vengono fuse e i disaccordi
+        restano scritti nel profilo.
+        """
+        if not db.get_setting_bool("llm_enabled", False):
+            return cv_parser.apply_reading(profilo, None)
+        provider = db.get_setting("llm_provider", llm.DEFAULT_PROVIDER)
+        if not llm.is_available(provider)[0]:
+            return cv_parser.apply_reading(profilo, None)
+        lettura = await asyncio.to_thread(
+            llm.read_cv, testo, provider, db.get_setting("llm_model", ""),
+            skills.EDUCATION_LABELS)
+        if lettura is None:
+            note = cv_parser.apply_reading(profilo, None)
+            note["avviso"] = ("il modello non ha risposto: il profilo viene dalla sola "
+                              "lettura automatica del testo")
+            return note
+        return cv_parser.apply_reading(profilo, lettura)
+
+    def in_attesa_di_giudizio(self) -> int:
+        """Quante offerte sopra soglia aspettano ancora il modello.
+
+        Serve alle impostazioni: senza, l'unico modo di sapere se il livello
+        semantico stia lavorando era guardare i log del contenitore.
+        """
+        if not db.get_setting_bool("llm_enabled", False) or self.active_cv() is None:
+            return 0
+        riga = db.query_one(
+            "SELECT COUNT(*) AS n FROM match m JOIN job j ON j.id = m.job_id "
+            "WHERE m.cv_id = ? AND j.is_archived = 0 AND m.score >= ? "
+            "  AND json_extract(m.breakdown_json, '$.llm') IS NULL",
+            (self._cv_id, db.get_setting_float("llm_min_lexical", 50)),
+        )
+        return riga["n"] if riga else 0
+
+    async def refine_with_llm(self, scored: list[dict[str, Any]] | None = None) -> int:
+        """Fa rileggere dal modello le offerte piu' promettenti.
 
         Interviene solo se il livello semantico e' attivo e configurato. Il
         punteggio lessicale resta la base: quello del modello lo corregge in
-        proporzione al peso impostato, e il suo giudizio viene conservato nel
-        dettaglio dell'offerta.
+        proporzione al peso impostato, e la spiegazione viene conservata nel
+        dettaglio dell'offerta, dove l'interfaccia la mostra.
         """
-        if not db.get_setting_bool("llm_enabled", False) or not scored:
+        if not db.get_setting_bool("llm_enabled", False):
             return 0
         provider = db.get_setting("llm_provider", llm.DEFAULT_PROVIDER)
         available, reason = llm.is_available(provider)
@@ -540,62 +631,90 @@ class Pipeline:
         cv = self.active_cv()
         if cv is None:
             return 0
-        floor = db.get_setting_float("llm_min_lexical", 30)
-        cap = db.get_setting_int("llm_max_per_cycle", 15)
+        floor = db.get_setting_float("llm_min_lexical", 50)
+        cap = db.get_setting_int("llm_max_per_cycle", 20)
         weight = db.get_setting_float("llm_weight", 50)
         model = db.get_setting("llm_model", "")
+        if cap <= 0:
+            return 0
 
-        candidates = sorted(
-            (c for c in scored if c["score"] >= floor), key=lambda c: -c["score"]
-        )[:cap]
-        refined = 0
-        falliti = 0
-        for candidate in candidates:
-            job = candidate["job"]
+        candidati = self.da_valutare(floor, cap, [c["job"]["id"] for c in (scored or [])])
+        if not candidati:
+            self.last_llm_error = ""
+            return 0
+
+        # Il profilo si legge una volta per ciclo, non una per offerta: e' lo
+        # stesso testo per tutte, e ricostruirlo ogni volta sarebbe una lettura
+        # dell'intera tabella delle candidature a ogni chiamata.
+        profilo = self.feedback_profile()
+        memoria, preferenze = profilo.summary(), profilo.preferences()
+        per_id = {c["job"]["id"]: c for c in (scored or [])}
+
+        refined = falliti = di_fila = 0
+        for indice, riga in enumerate(candidati):
+            if indice:
+                await asyncio.sleep(self.PAUSA_FRA_VALUTAZIONI)
             view = JobView(
-                title=job["title"], company=job["company"], description=job["description"],
-                location=job["location"], city=job["city"], country=job["country"],
-                remote=bool(job["remote"]), department=job["department"],
+                title=riga["title"], company=riga["company"], description=riga["description"],
+                location=riga["location"], city=riga["city"], country=riga["country"],
+                remote=bool(riga["remote"]), department=riga["department"],
             )
             # I client dei fornitori sono sincroni: girarli su un thread evita
             # di bloccare il ciclo di eventi mentre attendono la risposta.
             verdict = await asyncio.to_thread(
-                llm.evaluate, view, cv, provider, model, self.feedback_profile().summary())
+                llm.evaluate, view, cv, provider, model, memoria, preferenze)
             if verdict is None:
                 falliti += 1
-                # Se il modello non risponde mai non ha senso insistere per
-                # tutto il ciclo: si esce e si segnala, invece di fallire in
-                # silenzio venti volte di fila.
-                if falliti >= 3 and refined == 0:
+                di_fila += 1
+                # Tre errori di fila non sono sfortuna: e' la quota al minuto,
+                # o la chiave, o il modello. Insistere per tutto il ciclo
+                # produce solo altri errori, quindi si esce e lo si segnala.
+                if di_fila >= 3:
                     log.warning(
                         "livello semantico interrotto: %s non risponde (modello %s)",
                         provider, model or llm.provider_info(provider)["model"])
                     break
                 continue
-            lexical = candidate["score"]
-            final = llm.blend(lexical, verdict, weight)
-            breakdown = candidate["breakdown"]
+            di_fila = 0
+            # Senza `llm` nel dettaglio il punteggio salvato e' ancora quello
+            # puramente lessicale: e' la base su cui applicare il giudizio.
+            lessicale = float(riga["score"])
+            finale = llm.blend(lessicale, verdict, weight)
+            try:
+                breakdown = json.loads(riga["breakdown_json"] or "{}")
+            except (ValueError, TypeError):
+                breakdown = {}
             breakdown["llm"] = {
                 "provider": llm.provider_info(provider)["label"],
                 "score": verdict.score,
-                "lexical_score": round(lexical, 1),
+                "lexical_score": round(lessicale, 1),
                 "weight": weight,
                 "reasoning": verdict.reasoning,
                 "key_matches": verdict.key_matches,
                 "key_gaps": verdict.key_gaps,
+                "experience_note": verdict.experience_note,
+                "concerns": verdict.concerns,
+                "recommendation": verdict.recommendation,
                 "seniority_fit": verdict.seniority_fit,
+                "at": db.utcnow(),
             }
-            candidate["score"] = final
             db.execute(
                 "UPDATE match SET score = ?, breakdown_json = ?, computed_at = ? "
                 "WHERE job_id = ? AND cv_id = ?",
-                (final, json.dumps(breakdown, ensure_ascii=False), db.utcnow(),
-                 job["id"], self._cv_id),
+                (finale, json.dumps(breakdown, ensure_ascii=False), db.utcnow(),
+                 riga["id"], self._cv_id),
             )
+            # Se l'offerta e' fra quelle appena raccolte, la notifica che parte
+            # subito dopo deve vedere il punteggio definitivo.
+            voce = per_id.get(riga["id"])
+            if voce is not None:
+                voce["score"] = finale
+                voce["breakdown"] = breakdown
             refined += 1
         if refined:
-            log.info("livello semantico: %d offerte rivalutate da %s", refined,
-                     llm.provider_info(provider)["label"])
+            log.info("livello semantico: %d offerte valutate da %s, ne restano %d",
+                     refined, llm.provider_info(provider)["label"],
+                     max(0, self.in_attesa_di_giudizio()))
         if falliti:
             etichetta = llm.provider_info(provider)["label"]
             modello = model or llm.provider_info(provider)["model"]

@@ -201,6 +201,12 @@ MIGRATIONS: list[tuple[str, str, str]] = [
     ("cv", "is_manual", "INTEGER NOT NULL DEFAULT 0"),
     # Perche' un'offerta e' stata scartata: alimenta `matching/feedback.py`.
     ("application", "reasons_json", "TEXT NOT NULL DEFAULT '[]'"),
+    # Le etichette aggiunte a mano, distinte da quelle lette dal curriculum:
+    # il colore da solo non bastava a dire da dove venisse un'etichetta.
+    ("cv", "manual_tags_json", "TEXT NOT NULL DEFAULT '[]'"),
+    # Come e' stato letto il curriculum e su cosa le due letture non erano
+    # d'accordo. Serve a non far passare per certo un dato che certo non e'.
+    ("cv", "parse_json", "TEXT NOT NULL DEFAULT '{}'"),
 ]
 
 

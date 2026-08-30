@@ -114,7 +114,7 @@ SKILL_DEFS: list[tuple[str, str, float, list[str]]] = [
     ("Project management", "gestione", 1.4, ["project management", "gestione progetti", "pmp", "prince2", "gantt", "agile", "scrum"]),
     ("Gestione team", "gestione", 1.4, ["gestione del team", "team leadership", "coordinamento team", "people management", "team leader"]),
     ("Budget e controllo costi", "gestione", 1.5, ["budget", "controllo di gestione", "cost control", "forecast", "analisi dei costi"]),
-    ("Microsoft Office", "trasversali", 0.8, ["microsoft office", "pacchetto office", "excel", "word", "powerpoint", "outlook"]),
+    ("Microsoft Office", "trasversali", 0.8, ["microsoft office", "pacchetto office", "office", "excel", "word", "powerpoint", "outlook"]),
     ("Comunicazione", "trasversali", 0.7, ["comunicazione", "communication skills", "public speaking", "presentazioni"]),
     ("Problem solving", "trasversali", 0.7, ["problem solving", "capacita analitiche", "analytical skills", "pensiero critico"]),
     ("Lavoro in team", "trasversali", 0.7, ["lavoro di squadra", "lavoro in team", "teamwork", "collaborazione"]),
@@ -124,6 +124,51 @@ SKILL_DEFS: list[tuple[str, str, float, list[str]]] = [
     ("Marketing", "commerciale", 1.4, ["marketing", "digital marketing", "seo", "sem", "social media", "content marketing", "google analytics"]),
     ("Contabilita'", "amministrazione", 1.5, ["contabilita", "accounting", "bilancio", "partita doppia", "fatturazione", "prima nota"]),
     ("Risorse umane", "amministrazione", 1.5, ["risorse umane", "human resources", "recruiting", "selezione del personale", "amministrazione del personale"]),
+    ("Segreteria e back office", "amministrazione", 1.2, ["segreteria", "segretaria", "back office", "gestione agenda", "data entry", "inserimento dati", "archiviazione documenti"]),
+    ("Acquisti e fornitori", "amministrazione", 1.4, ["gestione ordini", "acquisti", "ufficio acquisti", "purchasing", "procurement", "gestione fornitori"]),
+    ("Paghe e contributi", "amministrazione", 1.6, ["paghe e contributi", "cedolini", "payroll", "buste paga"]),
+
+    # --- Logistica e magazzino --------------------------------------------
+    ("Gestione magazzino", "logistica", 1.5, ["gestione magazzino", "magazzino", "magazziniere", "warehouse", "warehouse management", "stoccaggio", "inventario di magazzino"]),
+    ("Carrello elevatore", "logistica", 1.6, ["carrello elevatore", "muletto", "patentino muletto", "forklift", "transpallet", "carrellista"]),
+    ("Picking e preparazione ordini", "logistica", 1.4, ["picking", "preparazione ordini", "order picking", "packing", "imballaggio", "confezionamento"]),
+    ("Spedizioni", "logistica", 1.4, ["spedizioni", "shipping", "logistica distributiva", "bolle di consegna", "ddt", "corriere"]),
+    ("Gestione scorte", "logistica", 1.5, ["gestione scorte", "inventory management", "riordino scorte", "stock control"]),
+    ("Patente C / CQC", "logistica", 1.7, ["cqc", "carta di qualificazione del conducente", "autista professionale", "patente superiore"]),
+
+    # --- Vendita e clienti -------------------------------------------------
+    ("Vendita al dettaglio", "commerciale", 1.3, ["vendita al dettaglio", "retail", "commesso", "commessa", "addetto vendite", "addetta vendite", "punto vendita", "shop assistant"]),
+    ("Assistenza clienti", "commerciale", 1.3, ["assistenza clienti", "customer service", "customer care", "servizio clienti", "help desk", "call center"]),
+    ("Operazioni di cassa", "commerciale", 1.2, ["addetto cassa", "addetta cassa", "operazioni di cassa", "cassiere", "cassiera"]),
+    ("Visual merchandising", "commerciale", 1.5, ["visual merchandising", "allestimento vetrine", "merchandising"]),
+
+    # --- Ristorazione e accoglienza ---------------------------------------
+    ("Servizio di sala", "ristorazione", 1.3, ["servizio di sala", "cameriere", "cameriera", "sala e bar", "banconista", "waiter"]),
+    ("Cucina", "ristorazione", 1.4, ["aiuto cuoco", "cuoco", "chef", "preparazione alimenti", "cucina professionale", "commis di cucina"]),
+    ("Bar e caffetteria", "ristorazione", 1.3, ["barista", "caffetteria", "bartender", "preparazione bevande"]),
+    ("Reception e front office", "ristorazione", 1.3, ["reception", "receptionist", "front office", "accoglienza clienti", "hospitality"]),
+
+    # --- Produzione e mestieri --------------------------------------------
+    ("Saldatura", "manifattura", 1.7, ["saldatura", "saldatore", "welding", "saldatura tig", "saldatura mig", "saldatura mag"]),
+    ("Macchine utensili e CNC", "manifattura", 1.7, ["tornitura", "fresatura", "macchine utensili", "controllo numerico", "cnc", "tornitore", "fresatore"]),
+    ("Montaggio e assemblaggio", "manifattura", 1.3, ["montaggio", "assemblaggio", "linea di produzione", "catena di montaggio", "operaio di produzione"]),
+    ("Disegno tecnico", "manifattura", 1.6, ["disegno tecnico", "lettura del disegno", "technical drawing", "quote e tolleranze"]),
+    ("Impianti elettrici", "manifattura", 1.6, ["impianti elettrici", "elettricista", "cablaggio", "quadri elettrici"]),
+    ("Impianti idraulici", "manifattura", 1.5, ["idraulico", "impianti idraulici", "termoidraulica", "impianti termici"]),
+
+    # --- Servizi alla persona ---------------------------------------------
+    ("Assistenza alla persona", "servizi", 1.4, ["assistenza alla persona", "operatore socio sanitario", "oss", "badante", "caregiver", "assistenza domiciliare"]),
+    ("Pulizie e sanificazione", "servizi", 1.2, ["addetto alle pulizie", "pulizie civili", "pulizie industriali", "sanificazione"]),
+    ("Vigilanza", "servizi", 1.4, ["vigilanza", "guardia giurata", "addetto alla sicurezza", "antitaccheggio", "portierato"]),
+
+    # --- Istruzione --------------------------------------------------------
+    ("Insegnamento", "istruzione", 1.4, ["insegnamento", "insegnante", "docente", "tutoraggio", "lezioni private", "formazione in aula"]),
+    ("Educazione infanzia", "istruzione", 1.5, ["educatore", "educatrice", "asilo nido", "scuola dell infanzia", "animatore"]),
+
+    # --- Trasversali aggiuntive -------------------------------------------
+    ("Patente B", "trasversali", 0.8, ["patente b", "patente di guida", "automunito", "automunita", "driving licence"]),
+    ("Disponibilita' ai turni", "trasversali", 0.8, ["lavoro su turni", "turnista", "disponibilita ai turni", "shift work", "lavoro notturno"]),
+    ("Organizzazione e precisione", "trasversali", 0.7, ["gestione del tempo", "time management", "organizzazione del lavoro", "precisione", "puntualita"]),
 ]
 
 LANGUAGE_DEFS: list[tuple[str, list[str]]] = [
@@ -197,6 +242,29 @@ ROLE_FAMILIES: dict[str, list[str]] = {
     "gestione": [
         "manager", "responsabile", "direttore", "head of", "team leader", "coordinatore",
         "supervisor", "chief", "lead",
+    ],
+    "logistica e magazzino": [
+        "magazziniere", "addetto al magazzino", "carrellista", "mulettista", "logistica",
+        "warehouse operator", "responsabile di magazzino", "autista", "corriere",
+    ],
+    "vendita e assistenza": [
+        "commesso", "commessa", "addetto vendite", "addetta vendite", "cassiere", "cassiera",
+        "store manager", "customer service", "assistenza clienti", "shop assistant",
+    ],
+    "ristorazione e accoglienza": [
+        "cameriere", "cameriera", "cuoco", "chef", "barista", "banconista", "receptionist",
+        "aiuto cuoco", "addetto alla ristorazione",
+    ],
+    "produzione e mestieri": [
+        "operaio", "operatore di produzione", "saldatore", "tornitore", "fresatore",
+        "elettricista", "idraulico", "manutentore", "montatore", "addetto alla produzione",
+    ],
+    "servizi alla persona": [
+        "oss", "operatore socio sanitario", "badante", "educatore", "educatrice",
+        "addetto alle pulizie", "guardia giurata", "assistente domiciliare",
+    ],
+    "istruzione": [
+        "insegnante", "docente", "professore", "tutor", "formatore", "maestro", "maestra",
     ],
 }
 
@@ -358,6 +426,16 @@ def resolve_skill(text: str) -> str | None:
         return text.strip()
     trovate = extract_skills(text)
     return trovate[0] if trovate else None
+
+
+# Le etichette dei livelli, dal piu' alto al piu' basso: servono al prompt che
+# chiede al modello di sceglierne una invece di inventarsi una formulazione.
+EDUCATION_LABELS: list[str] = [label for _, label, _ in EDUCATION_LEVELS]
+
+
+def education_level_value(label: str) -> int:
+    """Il numero corrispondente a un'etichetta di titolo di studio, 0 se ignota."""
+    return _LEVEL_BY_LABEL.get((label or "").strip(), 0)
 
 
 def skill_catalogue() -> list[dict[str, object]]:

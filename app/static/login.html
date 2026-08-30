@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="it" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#f5f5f7">
+<meta name="robots" content="noindex">
+<title>JobSeeker — Accesso</title>
+<link rel="icon" href="/static/icons/icon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Lexend:wght@300;400;500;600;700&display=swap">
+<link rel="stylesheet" href="/static/style.css">
+<script>
+  /* Stesso tema dell'applicazione, applicato prima del primo disegno: chi usa
+     il tema scuro non deve prendersi un lampo bianco sulla pagina d'accesso. */
+  (function () {
+    try {
+      var s = localStorage.getItem("jobseeker-theme");
+      var dark = s ? s === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
+      document.documentElement.dataset.theme = dark ? "dark" : "light";
+    } catch (e) {}
+  })();
+</script>
+</head>
+<body class="login-page">
+
+<main class="login-shell">
+  <form class="login-card" method="post" action="/login" autocomplete="on">
+
+    <div class="login-brand">
+      <span class="brand-mark">
+        <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 8h18v11a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1zM8 8V6a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+        </svg>
+      </span>
+      <span class="brand-name">JobSeeker</span>
+    </div>
+
+    <h1 id="titolo">Bentornato</h1>
+    <p class="login-lead" id="sottotitolo">Inserisci le credenziali per aprire la tua ricerca.</p>
+
+    <div class="notice bad login-errore" id="errore" hidden role="alert">
+      <span id="errore-testo">Utente o password non corretti.</span>
+    </div>
+
+    <label class="field">
+      <span id="etichetta-utente">Utente</span>
+      <input class="input" type="text" name="utente" id="utente" required
+             autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false">
+    </label>
+
+    <label class="field">
+      <span id="etichetta-password">Password</span>
+      <div class="login-password">
+        <input class="input" type="password" name="password" id="password" required
+               autocomplete="current-password">
+        <button class="login-occhio" type="button" id="mostra" aria-label="Mostra la password">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor"
+               stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+            <path id="occhio-path" d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z"></path>
+            <circle id="occhio-pupilla" cx="12" cy="12" r="3"></circle>
+          </svg>
+        </button>
+      </div>
+    </label>
+
+    <input type="hidden" name="next" id="next" value="/">
+
+    <button class="btn primary block login-invio" type="submit" id="invio">Entra</button>
+
+    <p class="login-foot" id="nota">
+      Le credenziali sono quelle impostate in <code>JOBSEEKER_USER</code> e
+      <code>JOBSEEKER_PASSWORD</code>.
+    </p>
+  </form>
+</main>
+
+<script>
+  (function () {
+    var TESTI = {
+      it: {
+        titolo: "Bentornato",
+        sottotitolo: "Inserisci le credenziali per aprire la tua ricerca.",
+        utente: "Utente",
+        password: "Password",
+        invio: "Entra",
+        errore: "Utente o password non corretti.",
+        mostra: "Mostra la password",
+        nascondi: "Nascondi la password",
+        nota: "Le credenziali sono quelle impostate in <code>JOBSEEKER_USER</code> e <code>JOBSEEKER_PASSWORD</code>.",
+      },
+      en: {
+        titolo: "Welcome back",
+        sottotitolo: "Enter your credentials to open your search.",
+        utente: "Username",
+        password: "Password",
+        invio: "Sign in",
+        errore: "Wrong username or password.",
+        mostra: "Show password",
+        nascondi: "Hide password",
+        nota: "Your credentials are the ones set in <code>JOBSEEKER_USER</code> and <code>JOBSEEKER_PASSWORD</code>.",
+      },
+    };
+
+    var lingua = "it";
+    try { lingua = localStorage.getItem("jobseeker-lang") === "en" ? "en" : "it"; } catch (e) {}
+    var t = TESTI[lingua];
+    document.documentElement.lang = lingua;
+
+    document.getElementById("titolo").textContent = t.titolo;
+    document.getElementById("sottotitolo").textContent = t.sottotitolo;
+    document.getElementById("etichetta-utente").textContent = t.utente;
+    document.getElementById("etichetta-password").textContent = t.password;
+    document.getElementById("invio").textContent = t.invio;
+    document.getElementById("errore-testo").textContent = t.errore;
+    document.getElementById("nota").innerHTML = t.nota;
+
+    var parametri = new URLSearchParams(location.search);
+
+    if (parametri.get("errore")) {
+      document.getElementById("errore").hidden = false;
+    }
+
+    /* Dopo l'accesso si torna dov'eri. Solo percorsi interni: `//altrosito`
+       sarebbe un indirizzo assoluto, e accettarlo trasformerebbe questa
+       pagina in un trampolino verso qualunque sito. */
+    var dopo = parametri.get("next") || "/";
+    document.getElementById("next").value =
+      dopo.charAt(0) === "/" && dopo.charAt(1) !== "/" ? dopo : "/";
+
+    var password = document.getElementById("password");
+    var mostra = document.getElementById("mostra");
+    mostra.setAttribute("aria-label", t.mostra);
+    mostra.addEventListener("click", function () {
+      var nascosta = password.type === "password";
+      password.type = nascosta ? "text" : "password";
+      mostra.classList.toggle("on", nascosta);
+      mostra.setAttribute("aria-label", nascosta ? t.nascondi : t.mostra);
+      password.focus();
+    });
+
+    /* Con l'errore in pagina il campo utente e' gia' compilato dal gestore
+       delle password: il cursore serve dove manca qualcosa. */
+    var utente = document.getElementById("utente");
+    (utente.value ? password : utente).focus();
+
+    /* Il service worker della versione precedente intercettava anche questa
+       pagina e poteva servirne una copia dalla cache. Qui non serve a niente
+       e confonde: se ne trova uno registrato, lo aggiorna. */
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.getRegistrations().then(function (elenco) {
+        elenco.forEach(function (reg) {
+          if (reg.active && reg.active.scriptURL.indexOf("/sw.js") !== -1) reg.update();
+        });
+      }).catch(function () {});
+    }
+  })();
+</script>
+</body>
+</html>

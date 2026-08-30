@@ -179,10 +179,10 @@ server {
 }
 ```
 
-**Serve HTTPS.** L'accesso usa HTTP Basic, che manda utente e password
-codificati in base64: non e' cifratura. Su `http://` chiunque stia sulla rete
-di mezzo le legge, e in piu' le notifiche del browser e l'installazione come
-app non funzionano.
+**Serve HTTPS.** Al primo accesso utente e password viaggiano dentro la
+richiesta, e da li' in poi ogni chiamata porta con se' il cookie di sessione.
+Su `http://` chiunque stia sulla rete di mezzo li legge, e in piu' le notifiche
+del browser e l'installazione come app non funzionano.
 
 ---
 
@@ -280,7 +280,10 @@ l'applicazione. Se aggiungi worker a uvicorn, gira una volta per worker e
 ogni offerta nuova genera notifiche doppie. Il `--workers 1` nel Dockerfile
 non è di troppo.
 
-**HTTP Basic vuole HTTPS.** L'autenticazione manda utente e password
-codificati in base64, che non è cifratura: chiunque stia sulla rete di mezzo
-li legge. Per questo Caddy c'è. Se scegli di girare in `http://` puro (il
-blocco commentato nel `Caddyfile`), fallo solo dentro una rete privata.
+**L'accesso vuole HTTPS.** Le credenziali passano in chiaro dentro la
+richiesta di accesso, e il cookie di sessione in ogni richiesta successiva:
+chiunque stia sulla rete di mezzo li legge. Per questo Caddy c'è. Se scegli di
+girare in `http://` puro (il blocco commentato nel `Caddyfile`), fallo solo
+dentro una rete privata. Il cookie viene marcato `Secure` da solo quando la
+connessione è cifrata, e non lo viene quando non lo è: altrimenti in `http://`
+il browser lo scarterebbe senza dire niente e l'accesso non funzionerebbe.
