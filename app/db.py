@@ -352,5 +352,18 @@ def set_setting(key: str, value: Any) -> None:
     )
 
 
+# Chiavi che non escono mai insieme alle impostazioni: le credenziali, i
+# segreti e il seme con cui si firmano i cookie. `all_settings` alimenta la
+# pagina delle impostazioni e fa da elenco di cio' che si puo' scrivere da li':
+# niente di tutto questo ha motivo di viaggiare fino al browser insieme ai pesi
+# del punteggio, ne' di essere modificabile dalla stessa richiesta.
+RISERVATE = ("auth_user", "auth_password", "session_secret")
+
+
+def riservata(chiave: str) -> bool:
+    return chiave.startswith("secret_") or chiave in RISERVATE
+
+
 def all_settings() -> dict[str, str]:
-    return {r["key"]: r["value"] for r in query("SELECT key, value FROM setting")}
+    return {r["key"]: r["value"] for r in query("SELECT key, value FROM setting")
+            if not riservata(r["key"])}

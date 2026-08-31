@@ -11,6 +11,7 @@ import hashlib
 import hmac
 import json
 import logging
+import os
 import secrets
 import time
 from contextlib import asynccontextmanager
@@ -25,8 +26,9 @@ from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import db, notify, scheduler
-from .config import AUTH_PASSWORD, AUTH_USER, CV_DIR, SECRETS, STATIC_DIR
+from . import accesso, db, notify, scheduler
+from .config import CV_DIR, PREFISSO_SEGRETO, SECRETS, SEGRETI, STATIC_DIR
+from .config import dimentica_segreti
 from .matching import CVParseError, build_profile, extract_text, feedback, llm
 from .matching.cv_parser import extract_person_name
 from .matching.engine import JobView, score_job
@@ -50,7 +52,11 @@ async def lifespan(app: FastAPI):
     scheduler.start()
     # Dentro un contenitore l'indirizzo utile e' quello del reverse proxy, non
     # 127.0.0.1: scriverlo qui manderebbe fuori strada chi legge i log.
-    log.info("JobSeeker pronto%s", " (accesso protetto da password)" if AUTH_PASSWORD else "")
+    if accesso.serve_configurazione():
+        log.info("JobSeeker pronto: nessuna credenziale, apri la pagina per configurarlo")
+    else:
+        log.info("JobSeeker pronto%s",
+                 " (accesso protetto da password)" if accesso.protetto() else "")
     try:
         yield
     finally:
@@ -1039,7 +1045,8 @@ def get_settings() -> dict[str, Any]:
         "adzuna_configured": bool(SECRETS.get("adzuna_app_id") and SECRETS.get("adzuna_app_key")),
         # Serve all'interfaccia per decidere se ha senso mostrare "Esci":
         # senza password non c'e' nessuna sessione da chiudere.
-        "auth": bool(AUTH_PASSWORD),
+        "auth": accesso.protetto(),
+        "auth_user": accesso.utente(),
         "llm": {
             "provider": chosen,
             "available": llm_available,
@@ -1153,6 +1160,9 @@ ATTESA_TENTATIVO_FALLITO = 0.6
 # Raggiungibili senza aver fatto l'accesso. Il foglio di stile serve alla
 # pagina di login stessa: e' presentazione, non contiene dati.
 PERCORSI_LIBERI = frozenset({"/healthz", "/login", "/logout", "/static/style.css"})
+# Cosa resta raggiungibile finche' non esiste una password. Nient'altro: ne'
+# offerte, ne' curriculum, ne' API. Solo la pagina che serve a crearla.
+PERCORSI_CONFIGURAZIONE = frozenset({"/healthz", "/setup", "/api/setup", "/static/style.css"})
 
 _chiave_firma: bytes | None = None
 
@@ -1176,8 +1186,19 @@ def _chiave() -> bytes:
             db.execute("INSERT OR IGNORE INTO setting(key, value) VALUES ('session_secret', ?)",
                        (secrets.token_urlsafe(32),))
             seme = db.get_setting("session_secret", "")
-        _chiave_firma = hashlib.sha256(f"{seme}:{AUTH_PASSWORD}".encode("utf-8")).digest()
+        _chiave_firma = hashlib.sha256(
+            f"{seme}:{accesso.firma_sessione()}".encode("utf-8")).digest()
     return _chiave_firma
+
+
+def scorda_chiave() -> None:
+    """Da chiamare quando cambiano le credenziali: la chiave va ricalcolata.
+
+    Senza, la copia in memoria resterebbe legata alla vecchia password e le
+    sessioni aperte prima del cambio continuerebbero a valere.
+    """
+    global _chiave_firma
+    _chiave_firma = None
 
 
 def _firma(scadenza: int) -> str:
@@ -1191,18 +1212,6 @@ def _sessione_valida(valore: str) -> bool:
     if int(scadenza) <= int(time.time()):
         return False
     return secrets.compare_digest(firma, _firma(int(scadenza)))
-
-
-def _credenziali_giuste(utente: str, parola: str) -> bool:
-    """Confronto a tempo costante.
-
-    `compare_digest` e non `==` perche' un confronto fra stringhe esce al primo
-    carattere diverso, e i tempi di risposta rivelerebbero la password un
-    carattere alla volta. Utente vuoto in configurazione significa "qualunque
-    utente": conta solo la password.
-    """
-    utente_ok = secrets.compare_digest(utente, AUTH_USER or utente)
-    return utente_ok and secrets.compare_digest(parola, AUTH_PASSWORD)
 
 
 def _percorso_interno(destinazione: str) -> str:
@@ -1231,7 +1240,7 @@ def login_page() -> FileResponse:
 @app.post("/login", include_in_schema=False)
 async def login(request: Request, utente: str = Form(""), password: str = Form(""),
                 destinazione: str = Form("/", alias="next")) -> Response:
-    if not AUTH_PASSWORD or not _credenziali_giuste(utente, password):
+    if not accesso.protetto() or not accesso.verifica(utente, password):
         await asyncio.sleep(ATTESA_TENTATIVO_FALLITO)
         return RedirectResponse("/login?errore=1", status_code=303)
 
@@ -1255,6 +1264,167 @@ def logout() -> Response:
     return risposta
 
 
+# --------------------------------------------------------------------------
+# Credenziali dei servizi
+# --------------------------------------------------------------------------
+# Prima si mettevano solo nel file .env. Va bene per chi distribuisce
+# l'applicazione, non per chi la riceve: aprire un file di testo, capire quali
+# righe togliere dal commento e riavviare il contenitore e' esattamente il
+# punto in cui la gente si ferma. Da qui si scrivono e basta.
+
+CREDENZIALI: list[dict[str, Any]] = [
+    {"chiave": "gemini_api_key", "gruppo": "ia", "etichetta": "Chiave Google Gemini",
+     "aiuto": "Gratuita con un account Google, senza carta: aistudio.google.com/apikey",
+     "segreta": True},
+    {"chiave": "anthropic_api_key", "gruppo": "ia", "etichetta": "Chiave Anthropic Claude",
+     "aiuto": "Richiede un'organizzazione Console con fatturazione: platform.claude.com",
+     "segreta": True},
+
+    {"chiave": "adzuna_app_id", "gruppo": "fonti", "etichetta": "Adzuna — App ID",
+     "aiuto": "Registrazione gratuita su developer.adzuna.com: da li' arrivano ID e chiave",
+     "segreta": False},
+    {"chiave": "adzuna_app_key", "gruppo": "fonti", "etichetta": "Adzuna — App Key",
+     "aiuto": "", "segreta": True},
+
+    {"chiave": "smtp_host", "gruppo": "email", "etichetta": "Server SMTP",
+     "aiuto": "Per Gmail: smtp.gmail.com", "segreta": False},
+    {"chiave": "smtp_port", "gruppo": "email", "etichetta": "Porta", "aiuto": "", "segreta": False},
+    {"chiave": "smtp_user", "gruppo": "email", "etichetta": "Utente",
+     "aiuto": "Di solito l'indirizzo email completo", "segreta": False},
+    {"chiave": "smtp_password", "gruppo": "email", "etichetta": "Password",
+     "aiuto": "Con Gmail serve una password per le app, non quella dell'account",
+     "segreta": True},
+    {"chiave": "smtp_from", "gruppo": "email", "etichetta": "Mittente",
+     "aiuto": "Vuoto: viene usato l'utente", "segreta": False},
+
+    {"chiave": "telegram_token", "gruppo": "telegram", "etichetta": "Token del bot",
+     "aiuto": "Lo da' @BotFather quando crei il bot", "segreta": True},
+    {"chiave": "telegram_chat_id", "gruppo": "telegram", "etichetta": "ID della chat",
+     "aiuto": "Si ricava dalle impostazioni, dopo aver scritto al bot", "segreta": False},
+]
+
+_PER_CHIAVE = {c["chiave"]: c for c in CREDENZIALI}
+
+
+def _origine(chiave: str) -> str:
+    """Da dove arriva il valore attualmente in uso."""
+    if db.get_setting(PREFISSO_SEGRETO + chiave, ""):
+        return "database"
+    variabile = SEGRETI[chiave][0]
+    return "ambiente" if os.environ.get(variabile, "") else "vuoto"
+
+
+@app.get("/api/secrets")
+def list_secrets() -> dict[str, Any]:
+    """Le credenziali dei servizi, con il loro valore.
+
+    Il valore torna in chiaro di proposito: l'interfaccia lo mostra a pallini
+    con l'occhiello per rileggerlo, che e' quello che serve quando si controlla
+    di non aver incollato una chiave sbagliata. Sta comunque dietro l'accesso,
+    e non passa dalle impostazioni generali: quelle vengono lette di continuo,
+    queste solo quando si apre la sezione.
+    """
+    return {
+        "voci": [
+            {**voce, "valore": SECRETS[voce["chiave"]], "origine": _origine(voce["chiave"]),
+             "variabile": SEGRETI[voce["chiave"]][0]}
+            for voce in CREDENZIALI
+        ],
+    }
+
+
+@app.put("/api/secrets")
+def update_secrets(values: dict[str, str] = Body(...)) -> dict[str, Any]:
+    """Salva le credenziali scritte dall'interfaccia.
+
+    Un valore vuoto non salva la stringa vuota: toglie quello scritto a mano e
+    fa tornare in uso la variabile d'ambiente, se c'e'. E' l'unico modo di
+    dire "annulla" senza dover cancellare una riga dal database.
+    """
+    scritte = 0
+    for chiave, valore in values.items():
+        if chiave not in _PER_CHIAVE:
+            continue
+        db.set_setting(PREFISSO_SEGRETO + chiave, (valore or "").strip())
+        scritte += 1
+    dimentica_segreti()
+    return {"salvate": scritte, "voci": list_secrets()["voci"]}
+
+
+# --------------------------------------------------------------------------
+# Primo avvio
+# --------------------------------------------------------------------------
+
+class SetupIn(BaseModel):
+    utente: str = ""
+    password: str = ""
+
+
+class CredenzialiIn(BaseModel):
+    password_attuale: str = ""
+    utente: str = ""
+    password: str = ""
+
+
+PASSWORD_MINIMA = 8
+
+
+def _cookie_di_sessione(request: Request, risposta: Response) -> None:
+    scadenza = int(time.time()) + DURATA_SESSIONE
+    risposta.set_cookie(
+        COOKIE_SESSIONE, f"{scadenza}.{_firma(scadenza)}",
+        max_age=DURATA_SESSIONE, httponly=True, samesite="lax", path="/",
+        secure=_connessione_cifrata(request),
+    )
+
+
+@app.get("/setup", include_in_schema=False)
+def setup_page() -> Response:
+    # A configurazione fatta questa pagina non ha piu' motivo di esistere, e
+    # lasciarla raggiungibile darebbe l'idea che da li' si possano rimettere le
+    # credenziali senza conoscere quelle vecchie.
+    if not accesso.serve_configurazione():
+        return RedirectResponse("/", status_code=303)
+    return FileResponse(STATIC_DIR / "setup.html")
+
+
+@app.post("/api/setup", include_in_schema=False)
+def setup(request: Request, payload: SetupIn) -> Response:
+    """Crea le prime credenziali. Vale una volta sola."""
+    if not accesso.serve_configurazione():
+        raise HTTPException(409, "la configurazione e' gia' stata completata")
+    if len(payload.password) < PASSWORD_MINIMA:
+        raise HTTPException(400, f"la password deve avere almeno {PASSWORD_MINIMA} caratteri")
+    accesso.imposta(payload.utente, payload.password)
+    scorda_chiave()
+    # Si entra gia' dentro: chiedere di rifare l'accesso subito dopo averlo
+    # creato e' un passaggio che non serve a nulla.
+    risposta = JSONResponse({"status": "configurato"})
+    _cookie_di_sessione(request, risposta)
+    return risposta
+
+
+@app.put("/api/credentials", include_in_schema=False)
+def update_credentials(request: Request, payload: CredenzialiIn) -> Response:
+    """Cambia utente e password, conoscendo quella attuale."""
+    if accesso.protetto() and not accesso.verifica(payload.utente or accesso.utente(),
+                                                   payload.password_attuale):
+        # Il confronto usa il nome nuovo solo se ne e' stato indicato uno: chi
+        # cambia solo la password non deve ripetere il proprio nome utente.
+        if not accesso.verifica(accesso.utente(), payload.password_attuale):
+            raise HTTPException(403, "la password attuale non e' corretta")
+    if len(payload.password) < PASSWORD_MINIMA:
+        raise HTTPException(400, f"la password deve avere almeno {PASSWORD_MINIMA} caratteri")
+    accesso.imposta(payload.utente or accesso.utente(), payload.password)
+    # La chiave di firma dipende dalla password: cambiandola, le sessioni
+    # aperte altrove decadono. Questa la si rinnova subito, altrimenti chi ha
+    # appena cambiato la password si troverebbe buttato fuori.
+    scorda_chiave()
+    risposta = JSONResponse({"status": "aggiornate", "utente": accesso.utente()})
+    _cookie_di_sessione(request, risposta)
+    return risposta
+
+
 @app.middleware("http")
 async def richiedi_accesso(request, call_next):
     """Protegge tutto quando c'e' una password.
@@ -1265,7 +1435,19 @@ async def richiedi_accesso(request, call_next):
     Attenzione: il cookie di sessione viaggia in chiaro come qualunque altra
     intestazione. Ha senso solo dietro HTTPS: vedi il Caddyfile allegato.
     """
-    if not AUTH_PASSWORD or request.url.path in PERCORSI_LIBERI:
+    percorso = request.url.path
+
+    # Primo avvio: protezione richiesta e nessuna credenziale. Si serve solo la
+    # pagina di configurazione, cosi' non c'e' un momento in cui i dati sono
+    # raggiungibili senza password.
+    if accesso.serve_configurazione():
+        if percorso in PERCORSI_CONFIGURAZIONE:
+            return await call_next(request)
+        if percorso.startswith("/api/"):
+            return JSONResponse({"error": "configurazione non completata"}, status_code=403)
+        return RedirectResponse("/setup", status_code=303)
+
+    if not accesso.protetto() or percorso in PERCORSI_LIBERI:
         return await call_next(request)
     if _sessione_valida(request.cookies.get(COOKIE_SESSIONE, "")):
         return await call_next(request)
@@ -1291,7 +1473,7 @@ async def no_stale_assets(request, call_next):
     """
     response = await call_next(request)
     percorso = request.url.path
-    if percorso.startswith("/static/") or percorso in ("/", "/login", "/sw.js", "/manifest.json"):
+    if percorso.startswith("/static/") or percorso in ("/", "/login", "/setup", "/sw.js", "/manifest.json"):
         response.headers["Cache-Control"] = "no-cache, must-revalidate"
     return response
 

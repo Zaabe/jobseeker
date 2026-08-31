@@ -67,9 +67,17 @@ Poi ricopia dal tuo `.env` locale le chiavi che già usi: `ADZUNA_APP_ID`,
 computer, backup e cartelle condivise, e delle credenziali finite lì dentro
 è difficile riprendere il controllo.
 
-Se `JOBSEEKER_PASSWORD` resta vuota il contenitore **non parte**. È voluto:
-senza password chiunque conosca l'indirizzo leggerebbe il tuo curriculum, lo
-storico delle candidature, e potrebbe spendere le tue chiavi API.
+Se `JOBSEEKER_PASSWORD` resta vuota il contenitore parte, ma serve **soltanto
+una pagina di configurazione**: si apre l'indirizzo, si scelgono utente e
+password, e da lì si possono incollare anche le chiavi dei servizi. Niente
+offerte, niente curriculum, nessuna API finché non c'è una password — senza,
+chiunque conosca l'indirizzo leggerebbe il tuo curriculum, lo storico delle
+candidature, e potrebbe spendere le tue chiavi API.
+
+Chi preferisce continuare a compilare il `.env` può farlo: le variabili
+funzionano come prima, e la pagina di configurazione non compare perché la
+password c'è già. Quello che si scrive dall'interfaccia ha comunque la
+precedenza, così cambiare una chiave non richiede di rifare il contenitore.
 
 ---
 

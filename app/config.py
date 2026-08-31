@@ -11,6 +11,7 @@ resto è pensato per essere cambiato a caldo dalla pagina Impostazioni.
 from __future__ import annotations
 
 import os
+from collections.abc import Mapping
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -48,18 +49,18 @@ _load_dotenv()
 # senza, chiunque conosca l'indirizzo legge il curriculum, lo storico delle
 # candidature e puo' spendere le chiavi API altrui.
 #
-# La protezione si attiva da sola quando c'e' una password. `REQUIRE_AUTH`
-# esiste per il caso peggiore: un contenitore esposto in rete con la password
-# dimenticata vuota. In quel caso l'avvio fallisce invece di partire aperto.
+# La protezione si attiva da sola quando c'e' una password, presa dal file .env
+# o scelta dall'interfaccia al primo avvio. `REQUIRE_AUTH` dice che senza
+# password non si entra: in quel caso, finche' non ne esiste una,
+# l'applicazione serve solo la pagina di configurazione (vedi `accesso.py`).
+#
+# Prima l'avvio falliva con un messaggio. E' sicuro, ma chi riceve
+# l'applicazione si trova davanti a un contenitore che muore e a un file di
+# testo da compilare al buio: la pagina di configurazione fa lo stesso lavoro
+# senza chiedere di aprire niente.
 AUTH_USER = os.getenv("JOBSEEKER_USER", "").strip()
 AUTH_PASSWORD = os.getenv("JOBSEEKER_PASSWORD", "").strip()
 REQUIRE_AUTH = os.getenv("JOBSEEKER_REQUIRE_AUTH", "").strip().lower() in ("1", "true", "yes", "si")
-
-if REQUIRE_AUTH and not AUTH_PASSWORD:
-    raise SystemExit(
-        "JOBSEEKER_REQUIRE_AUTH e' attivo ma JOBSEEKER_PASSWORD e' vuota. "
-        "Imposta utente e password nel file .env prima di avviare il contenitore."
-    )
 
 
 # Valori di default per le impostazioni memorizzate su database.
@@ -113,20 +114,79 @@ DEFAULT_SETTINGS: dict[str, str] = {
     "user_agent": "JobSeeker/1.0 (+personal job search tool)",
 }
 
-# Credenziali e segreti: solo da ambiente.
-SECRETS = {
-    "adzuna_app_id": os.environ.get("ADZUNA_APP_ID", ""),
-    "adzuna_app_key": os.environ.get("ADZUNA_APP_KEY", ""),
-    "smtp_host": os.environ.get("SMTP_HOST", ""),
-    "smtp_port": os.environ.get("SMTP_PORT", "587"),
-    "smtp_user": os.environ.get("SMTP_USER", ""),
-    "smtp_password": os.environ.get("SMTP_PASSWORD", ""),
-    "smtp_from": os.environ.get("SMTP_FROM", ""),
-    "smtp_use_tls": os.environ.get("SMTP_USE_TLS", "true"),
-    "telegram_token": os.environ.get("TELEGRAM_TOKEN", ""),
-    "telegram_chat_id": os.environ.get("TELEGRAM_CHAT_ID", ""),
-    "anthropic_api_key": os.environ.get("ANTHROPIC_API_KEY", ""),
-    "gemini_api_key": os.environ.get("GEMINI_API_KEY", ""),
+# --------------------------------------------------------------------------
+# Credenziali e segreti
+# --------------------------------------------------------------------------
+# Ogni voce ha la sua variabile d'ambiente e, quando serve, un valore
+# predefinito. Il nome della variabile resta quello di sempre: chi ha gia' un
+# .env non deve toccare niente.
+SEGRETI: dict[str, tuple[str, str]] = {
+    # chiave interna         variabile d'ambiente     valore predefinito
+    "adzuna_app_id":        ("ADZUNA_APP_ID",        ""),
+    "adzuna_app_key":       ("ADZUNA_APP_KEY",       ""),
+    "smtp_host":            ("SMTP_HOST",            ""),
+    "smtp_port":            ("SMTP_PORT",            "587"),
+    "smtp_user":            ("SMTP_USER",            ""),
+    "smtp_password":        ("SMTP_PASSWORD",        ""),
+    "smtp_from":            ("SMTP_FROM",            ""),
+    "smtp_use_tls":         ("SMTP_USE_TLS",         "true"),
+    "telegram_token":       ("TELEGRAM_TOKEN",       ""),
+    "telegram_chat_id":     ("TELEGRAM_CHAT_ID",     ""),
+    "anthropic_api_key":    ("ANTHROPIC_API_KEY",    ""),
+    "gemini_api_key":       ("GEMINI_API_KEY",       ""),
 }
+
+# Nel database le credenziali stanno fra le impostazioni, con questo prefisso.
+# Serve anche a tenerle fuori da `all_settings()`, che alimenta la pagina delle
+# impostazioni: una chiave API non deve viaggiare insieme al colore del tema.
+PREFISSO_SEGRETO = "secret_"
+
+_memoria: dict[str, str] = {}
+
+
+def dimentica_segreti() -> None:
+    """Svuota la copia in memoria: da chiamare dopo aver salvato un segreto."""
+    _memoria.clear()
+
+
+class _Segreti(Mapping):
+    """Le credenziali, prima come le ha scritte l'utente e poi come le da' l'ambiente.
+
+    Vince il database perche' e' l'unico posto che si puo' cambiare senza
+    rifare il contenitore. L'ambiente resta il ripiego, e continua a funzionare
+    da solo per chi ha gia' un .env compilato.
+
+    L'importazione di `db` avviene qui dentro e non in cima al file: `db`
+    importa a sua volta questo modulo, e le due cose insieme non starebbero in
+    piedi.
+    """
+
+    def _salvato(self, chiave: str) -> str:
+        if chiave in _memoria:
+            return _memoria[chiave]
+        try:
+            from . import db
+
+            valore = db.get_setting(PREFISSO_SEGRETO + chiave, "")
+        except Exception:
+            # Database non ancora pronto: si vive con l'ambiente.
+            return ""
+        _memoria[chiave] = valore
+        return valore
+
+    def __getitem__(self, chiave: str) -> str:
+        if chiave not in SEGRETI:
+            raise KeyError(chiave)
+        variabile, predefinito = SEGRETI[chiave]
+        return self._salvato(chiave) or os.environ.get(variabile, "") or predefinito
+
+    def __iter__(self):
+        return iter(SEGRETI)
+
+    def __len__(self) -> int:
+        return len(SEGRETI)
+
+
+SECRETS = _Segreti()
 
 PORT = int(os.environ.get("JOBSEEKER_PORT", "8000"))

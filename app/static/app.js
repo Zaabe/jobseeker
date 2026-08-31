@@ -134,7 +134,9 @@ const T = {
     weightsNote: "Quanto ciascun fattore incide sulla percentuale finale. Una componente che l'annuncio non permette di valutare viene esclusa e le altre vengono riproporzionate.",
     weight_skills: "Competenze", weight_similarity: "Affinità complessiva", weight_title: "Ruolo",
     weight_education: "Titolo di studio", weight_experience: "Esperienza", weight_location: "Sede",
-    weightsSum: "Somma dei pesi", rescored: "offerte ricalcolate",
+    weightsShare: "Contano le proporzioni fra i pesi, non il totale.",
+    weightsLast: "Almeno un criterio deve pesare: senza, ogni offerta varrebbe zero.",
+    rescored: "offerte ricalcolate",
     llmTitle: "Livello semantico",
     llmNote: "Un modello linguistico rilegge annuncio e curriculum e corregge il punteggio lessicale, cogliendo le affinità che il confronto per parole non vede. Richiede una chiave nel file .env.",
     llmModel: "Modello", llmModelDefault: "Predefinito del fornitore:",
@@ -150,6 +152,16 @@ const T = {
     diagTitle: "Diagnostica", diagRuns: "Ultime esecuzioni",
     accessTitle: "Accesso", accessNote: "La sessione resta aperta per trenta giorni su questo dispositivo.",
     logout: "Esci", logoutHelp: "Chiude la sessione e riporta alla pagina di accesso.",
+    credTitle: "Credenziali dei servizi",
+    credNote: "Chiavi e password dei servizi esterni. Si possono scrivere qui: non serve toccare il file .env, e quello che metti qui ha la precedenza su quello che c'è là dentro.",
+    credFromEnv: "già nel file .env", credSave: "Salva le credenziali", credSaved: "Credenziali salvate",
+    credEmpty: "Svuota un campo per tornare al valore del file .env.",
+    gIa: "Intelligenza artificiale", gFonti: "Fonti di offerte",
+    gEmail: "Notifiche via email", gTelegram: "Notifiche su Telegram",
+    pwChange: "Cambia le credenziali", pwChangeHelp: "Le sessioni aperte su altri dispositivi decadono.",
+    pwCurrent: "Password attuale", pwUser: "Nome utente", pwNew: "Nuova password",
+    pwSave: "Aggiorna", pwChanged: "Credenziali aggiornate", pwShow: "Mostra", pwHide: "Nascondi",
+    pwTooShort: "La password deve avere almeno 8 caratteri.",
     dSource: "Fonte", dKind: "Tipo", dJobs: "Offerte", dState: "Stato", dFails: "Errori di fila",
     dWhen: "Quando", dOutcome: "Esito", dFound: "Trovate", dNew: "Nuove", dError: "Errore",
     neverRun: "mai eseguita", ok: "ok", error: "errore",
@@ -315,7 +327,9 @@ const T = {
     weightsNote: "How much each factor moves the final percentage. A component a posting cannot support is dropped and the rest are re-proportioned.",
     weight_skills: "Skills", weight_similarity: "Overall similarity", weight_title: "Role",
     weight_education: "Education", weight_experience: "Experience", weight_location: "Location",
-    weightsSum: "Sum of weights", rescored: "postings rescored",
+    weightsShare: "What counts is the ratio between weights, not the total.",
+    weightsLast: "At least one criterion has to weigh something: without it every posting would score zero.",
+    rescored: "postings rescored",
     llmTitle: "Semantic layer",
     llmNote: "A language model re-reads the posting and the résumé and corrects the lexical score, catching affinities a word-by-word comparison misses. Requires a key in the .env file.",
     llmModel: "Model", llmModelDefault: "Provider default:",
@@ -331,6 +345,16 @@ const T = {
     diagTitle: "Diagnostics", diagRuns: "Latest runs",
     accessTitle: "Access", accessNote: "The session stays open for thirty days on this device.",
     logout: "Sign out", logoutHelp: "Closes the session and returns to the sign-in page.",
+    credTitle: "Service credentials",
+    credNote: "Keys and passwords for the external services. You can type them here: no need to touch the .env file, and what you set here takes precedence over what is in there.",
+    credFromEnv: "already in the .env file", credSave: "Save credentials", credSaved: "Credentials saved",
+    credEmpty: "Clear a field to fall back to the value in the .env file.",
+    gIa: "Artificial intelligence", gFonti: "Job sources",
+    gEmail: "Email notifications", gTelegram: "Telegram notifications",
+    pwChange: "Change credentials", pwChangeHelp: "Sessions open on other devices will end.",
+    pwCurrent: "Current password", pwUser: "Username", pwNew: "New password",
+    pwSave: "Update", pwChanged: "Credentials updated", pwShow: "Show", pwHide: "Hide",
+    pwTooShort: "The password must be at least 8 characters long.",
     dSource: "Source", dKind: "Kind", dJobs: "Postings", dState: "State", dFails: "Failures in a row",
     dWhen: "When", dOutcome: "Outcome", dFound: "Found", dNew: "New", dError: "Error",
     neverRun: "never run", ok: "ok", error: "error",
@@ -382,6 +406,7 @@ const ICONS = {
   cv: "M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8zM14 3v5h5M9 13h6M9 17h4",
   settings: "M4 7h10M18 7h2M4 17h4M12 17h8M14 4v6M8 14v6",
   spark: "M12 3l2.2 5.3L20 9.6l-4.2 3.8 1.1 5.6L12 16.3 7.1 19l1.1-5.6L4 9.6l5.8-1.3z",
+  eye: "M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12ZM12 9.2a2.8 2.8 0 1 0 0 5.6 2.8 2.8 0 0 0 0-5.6z",
   target: "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8M12 11.4a.6.6 0 1 0 0 1.2.6.6 0 0 0 0-1.2",
   check: "M4 12.5l5 5L20 6.5",
   cross: "M5.5 5.5l13 13M18.5 5.5l-13 13",
@@ -400,6 +425,13 @@ const STATUSES = ["saved", "applied", "interview", "offer", "rejected", "discard
 // Stati per cui ha senso chiedere il motivo: sono quelli da cui l'app impara.
 const STATI_NEGATIVI = ["discarded", "rejected"];
 const WEIGHT_KEYS = ["weight_skills", "weight_similarity", "weight_title", "weight_education", "weight_experience", "weight_location"];
+
+/* Il valore del peso e la quota che rappresenta. La quota e' l'informazione
+   vera: il punteggio e' una media pesata rinormalizzata, quindi 40/25/15 vale
+   esattamente quanto 80/50/30. Il totale, che qui compariva prima, suggeriva
+   un vincolo che il motore non ha mai avuto. */
+const etichettaPeso = (valore, somma) =>
+  `${valore}  ·  ${somma > 0 ? Math.round((Number(valore) / somma) * 100) : 0}%`;
 
 /* Ripiego usato solo finché il backend non ha risposto con l'elenco vero.
    I modelli disponibili dipendono dalla chiave, quindi un elenco scritto qui
@@ -436,6 +468,7 @@ const state = {
   conferma: null,
   settings: {},
   meta: { smtp: {}, telegram: {}, llm: {} },
+  segreti: [],
   diagnostics: null,
   appFilter: "",
   form: {},
@@ -482,6 +515,58 @@ const esc = (v) => String(v ?? "")
 const svg = (path, size = 16, extra = "") =>
   `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" stroke="currentColor"
     stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" ${extra}><path d="${path}"></path></svg>`;
+
+/* Campi che accettano solo numeri: il carattere non ammesso semplicemente non
+   compare, senza messaggi e senza correzioni da fare dopo.
+
+   Non basta `type="number"`: accetta comunque "e", "+" e "-", su alcuni
+   browser lascia scrivere qualsiasi cosa e restituisce stringa vuota, e si
+   porta dietro le frecce di incremento che qui non servono. Il filtro copre
+   anche l'incolla, perche' l'evento `input` scatta pure per quello.
+
+   `decimali` serve al solo campo degli anni di esperienza, dove "1,5" e' un
+   valore sensato; la virgola diventa punto perche' e' quello che il server si
+   aspetta. */
+function soloNumeri(input, { decimali = false } = {}) {
+  if (!input || input.dataset.soloNumeri) return;
+  input.dataset.soloNumeri = "1";
+  input.setAttribute("inputmode", decimali ? "decimal" : "numeric");
+
+  input.addEventListener("input", () => {
+    const prima = input.value;
+    let dopo = prima.replace(decimali ? /[^0-9.,]/g : /[^0-9]/g, "");
+    if (decimali) {
+      dopo = dopo.replace(/,/g, ".");
+      const punto = dopo.indexOf(".");
+      // Un solo separatore: "1.5.2" non e' un numero.
+      if (punto !== -1) dopo = dopo.slice(0, punto + 1) + dopo.slice(punto + 1).replace(/\./g, "");
+    }
+    if (dopo === prima) return;
+    // Il cursore resta dov'era. Senza, ogni carattere scartato lo rimanda in
+    // fondo, e correggere una cifra in mezzo al numero diventa impossibile.
+    const posizione = Math.max(0, (input.selectionStart || 0) - (prima.length - dopo.length));
+    input.value = dopo;
+    try { input.setSelectionRange(posizione, posizione); } catch (e) { /* non tutti i campi lo espongono */ }
+  });
+}
+
+/* Rimette il valore precedente quando il campo viene lasciato vuoto.
+
+   L'aggancio e' `blur`, non `change`: `change` il browser lo emette solo se il
+   valore differisce da quello dell'ultima volta che l'ha emesso, e dopo il
+   primo ripristino quel riferimento resta la stringa vuota. Svuotando il campo
+   una seconda volta di fila l'evento non partiva, il ripristino non veniva
+   chiamato e il campo restava vuoto. `blur` invece scatta ogni volta che si
+   esce dal campo, punto. */
+function ripristinaSeVuoto(input, valorePrecedente) {
+  if (!input || input.dataset.ripristina) return;
+  input.dataset.ripristina = "1";
+  input.addEventListener("blur", () => {
+    if (input.value.trim()) return;
+    const precedente = typeof valorePrecedente === "function" ? valorePrecedente() : valorePrecedente;
+    input.value = precedente ?? "";
+  });
+}
 
 function toast(message, kind = "") {
   const el = document.createElement("div");
@@ -1085,8 +1170,13 @@ function renderSearches() {
       </section>
     </div>`;
 
-  $$("[data-sf]").forEach((i) => i.oninput = () => {
-    state.form.search = { ...(state.form.search || {}), [i.dataset.sf]: i.value };
+  $$("[data-sf]").forEach((i) => {
+    // La soglia specifica e' l'unico campo numerico del modulo: le altre voci
+    // sono parole chiave, localita' e codice del paese.
+    if (i.dataset.sf === "min") soloNumeri(i);
+    i.oninput = () => {
+      state.form.search = { ...(state.form.search || {}), [i.dataset.sf]: i.value };
+    };
   });
   $$("[data-sf-toggle]").forEach((b) => b.onclick = () => {
     const k = b.dataset.sfToggle;
@@ -1403,6 +1493,12 @@ function openProviderModal(kind, existing = null) {
       </div>`;
 
     $$("[data-pf]").forEach((i) => i.oninput = () => { values[i.dataset.pf] = i.value; });
+    // L'intervallo fra due letture della fonte, in minuti: l'unico campo
+    // numerico della scheda. Gli altri sono token, sigle di paese e indirizzi.
+    const intervallo = $("#pf-interval");
+    soloNumeri(intervallo);
+    ripristinaSeVuoto(intervallo, Math.round(
+      (existing ? existing.min_interval_sec : info.default_interval) / 60));
     const enabled = $("#pf-enabled");
     if (enabled) enabled.onclick = () => enabled.classList.toggle("on");
 
@@ -1661,6 +1757,16 @@ function wireCv() {
     } catch (e) { toast(e.message, "bad"); }
   };
 
+  // Gli anni di esperienza sono l'unico campo numerico che ammette i decimali:
+  // un anno e mezzo di tirocinio si scrive "1,5", non "1" o "2".
+  $$("[data-years]").forEach((i) => {
+    soloNumeri(i, { decimali: true });
+    // Svuotato e lasciato cosi', tornerebbe a zero al primo salvataggio e con
+    // lui tutti i punteggi che dipendono dall'esperienza.
+    const cv = state.cvs.find((c) => c.id === +i.dataset.years);
+    ripristinaSeVuoto(i, () => (cv ? cv.years_experience : 0));
+  });
+
   const redraw = (id) => { $(`[data-tags="${id}"]`).innerHTML = tagChips(id); bindRemovals(); };
   const bindRemovals = () => $$("[data-tags] .x").forEach((b) => b.onclick = (e) => {
     e.stopPropagation();
@@ -1773,9 +1879,13 @@ async function loadFeedback() {
 
 async function loadSettings(alsoRender = true) {
   const data = await api("/api/settings");
+  // Le credenziali stanno su una chiamata a parte: le impostazioni si leggono
+  // di continuo, e una chiave API non ha motivo di viaggiare ogni volta.
+  state.segreti = data.auth === false ? [] : await api("/api/secrets")
+    .then((d) => d.voci || []).catch(() => []);
   state.settings = data.settings;
   state.meta = { smtp: data.smtp || {}, telegram: data.telegram || {}, llm: data.llm || {},
-                 auth: !!data.auth };
+                 auth: !!data.auth, auth_user: data.auth_user || "" };
   if (alsoRender && state.view === "settings") {
     state.diagnostics = await api("/api/diagnostics?limit=25").catch(() => null);
     renderSettings();
@@ -1843,6 +1953,7 @@ function renderSettings() {
   const s = state.settings;
   const m = state.meta;
   const on = (k) => s[k] === "true" || s[k] === true;
+  const sommaPesi = WEIGHT_KEYS.reduce((a, k) => a + Number(s[k]), 0);
 
   const numRow = (key, label, help, unit) => `
     <div class="row">
@@ -1936,13 +2047,13 @@ function renderSettings() {
         <div class="rows" style="padding:18px">
           <div class="weights">
             ${WEIGHT_KEYS.map((k) => `<div class="weight">
-              <div><span>${t(k)}</span><span data-wout="${k}">${s[k]}</span></div>
+              <div><span>${t(k)}</span><span data-wout="${k}">${etichettaPeso(s[k], sommaPesi)}</span></div>
               <input type="range" min="0" max="60" step="1" data-w="${k}" value="${s[k]}" style="${sliderBg(s[k], 60)}">
             </div>`).join("")}
           </div>
           <div class="weights-foot">
             <button class="btn primary" type="button" id="btn-rescore">${t("saveRescore")}</button>
-            <span id="wsum">${t("weightsSum")}: ${WEIGHT_KEYS.reduce((a, k) => a + Number(s[k]), 0)}</span>
+            <span id="wsum">${t("weightsShare")}</span>
           </div>
         </div>
       </section>
@@ -2002,6 +2113,18 @@ function renderSettings() {
         <div class="rows" style="padding:18px">${diagnosticsHtml()}</div>
       </section>
 
+      <section>
+        <h2 class="group-title">${t("credTitle")}</h2>
+        <p class="group-note">${t("credNote")}</p>
+        <div class="rows cred-rows">
+          ${credenzialiHtml()}
+          <div class="cred-foot">
+            <button class="btn primary" type="button" id="cred-save">${t("credSave")}</button>
+            <span class="legend">${t("credEmpty")}</span>
+          </div>
+        </div>
+      </section>
+
       ${m.auth ? `
       <section>
         <h2 class="group-title">${t("accessTitle")}</h2>
@@ -2014,6 +2137,26 @@ function renderSettings() {
                 <button class="btn danger" type="submit">${t("logout")}</button>
               </form>
             </div>
+          </div>
+          <div class="cred-gruppo" style="padding:18px">
+            <h3>${t("pwChange")}</h3>
+            <p class="legend" style="margin:-4px 0 0">${t("pwChangeHelp")}</p>
+            <label class="field"><span>${t("pwCurrent")}</span>
+              <div class="login-password">
+                <input class="input" type="password" id="pw-attuale" autocomplete="current-password">
+                <button class="login-occhio" type="button" data-occhio="pw-attuale"
+                  aria-label="${t("pwShow")}">${svg(ICONS.eye, 16)}</button>
+              </div></label>
+            <label class="field"><span>${t("pwUser")}</span>
+              <input class="input" id="pw-utente" value="${esc(m.auth_user || "")}"
+                autocomplete="username" autocapitalize="none" spellcheck="false"></label>
+            <label class="field"><span>${t("pwNew")}</span>
+              <div class="login-password">
+                <input class="input" type="password" id="pw-nuova" autocomplete="new-password">
+                <button class="login-occhio" type="button" data-occhio="pw-nuova"
+                  aria-label="${t("pwShow")}">${svg(ICONS.eye, 16)}</button>
+              </div></label>
+            <div><button class="btn" type="button" id="pw-save">${t("pwSave")}</button></div>
           </div>
         </div>
       </section>` : ""}
@@ -2091,6 +2234,10 @@ function wireSettings() {
 
   $$("[data-set]").forEach((el) => {
     const key = el.dataset.set;
+    if (el.dataset.type === "number") {
+      soloNumeri(el);
+      ripristinaSeVuoto(el, () => state.settings[key]);
+    }
     if (el.dataset.type === "range") {
       el.oninput = () => {
         el.style.cssText = sliderBg(el.value);
@@ -2102,6 +2249,11 @@ function wireSettings() {
       };
     } else {
       el.onchange = () => {
+        // Campo numerico lasciato vuoto: non e' una scelta, e' un ripensamento
+        // a meta'. `Number("")` vale zero, e salvare qui scriverebbe zero
+        // secondi fra un controllo e l'altro, o zero giorni di conservazione.
+        // Non si salva niente: al valore ci pensa `ripristinaSeVuoto`.
+        if (el.dataset.type === "number" && !el.value.trim()) return;
         const value = el.dataset.type === "number" ? Number(el.value) : el.value;
         save({ [key]: value }).then(() => { if (key === "poll_interval_sec") loadStatus(); });
       };
@@ -2120,11 +2272,27 @@ function wireSettings() {
     renderSettings();
   });
 
+  /* Muovere un cursore cambia la quota di tutti, non solo la sua: e' il senso
+     stesso di una media pesata, e mostrarlo e' l'unico modo per far capire che
+     il totale non ha importanza. */
+  const aggiornaQuote = () => {
+    const cursori = $$("[data-w]");
+    const somma = cursori.reduce((a, x) => a + Number(x.value), 0);
+    cursori.forEach((x) => {
+      const out = $(`[data-wout="${x.dataset.w}"]`);
+      if (out) out.textContent = etichettaPeso(x.value, somma);
+    });
+  };
+
   $$("[data-w]").forEach((el) => el.oninput = () => {
+    // Tutti i pesi a zero vorrebbe dire dividere per zero: il motore darebbe
+    // zero a ogni offerta. L'ultimo criterio rimasto non scende sotto uno.
+    if ($$("[data-w]").reduce((a, x) => a + Number(x.value), 0) === 0) {
+      el.value = 1;
+      toast(t("weightsLast"));
+    }
     el.style.cssText = sliderBg(el.value, 60);
-    $(`[data-wout="${el.dataset.w}"]`).textContent = el.value;
-    const sum = $$("[data-w]").reduce((a, x) => a + Number(x.value), 0);
-    $("#wsum").textContent = `${t("weightsSum")}: ${sum}`;
+    aggiornaQuote();
   });
 
   $("#btn-rescore").onclick = async (e) => {
@@ -2139,6 +2307,44 @@ function wireSettings() {
       if (state.view === "jobs") loadJobs();
     } catch (err) { toast(err.message, "bad"); }
     e.target.disabled = false;
+  };
+
+  const salvaCred = $("#cred-save");
+  if (salvaCred) salvaCred.onclick = async () => {
+    const valori = {};
+    $$("[data-cred]").forEach((i) => { valori[i.dataset.cred] = i.value.trim(); });
+    salvaCred.disabled = true;
+    try {
+      const r = await api("/api/secrets", { method: "PUT", body: valori });
+      state.segreti = r.voci || state.segreti;
+      toast(t("credSaved"));
+      // Le sezioni che dipendono dalle chiavi - fornitore del modello, stato di
+      // SMTP e Telegram - vanno rilette: una chiave appena messa cambia cosa
+      // l'applicazione dichiara di saper fare.
+      await loadSettings();
+    } catch (e) { toast(e.message, "bad"); }
+    salvaCred.disabled = false;
+  };
+
+  const salvaPw = $("#pw-save");
+  if (salvaPw) salvaPw.onclick = async () => {
+    const nuova = $("#pw-nuova").value;
+    if (nuova.length < 8) { toast(t("pwTooShort"), "bad"); return; }
+    salvaPw.disabled = true;
+    try {
+      await api("/api/credentials", {
+        method: "PUT",
+        body: {
+          password_attuale: $("#pw-attuale").value,
+          utente: $("#pw-utente").value.trim(),
+          password: nuova,
+        },
+      });
+      $("#pw-attuale").value = ""; $("#pw-nuova").value = "";
+      toast(t("pwChanged"));
+      await loadSettings();
+    } catch (e) { toast(e.message, "bad"); }
+    salvaPw.disabled = false;
   };
 
   $$("[data-llm]").forEach((b) => b.onclick = async () => {
@@ -2184,6 +2390,36 @@ function consiglio(chiave) {
   if (!chiave) return "";
   const testo = CONSIGLI[chiave] ? t(CONSIGLI[chiave]) : String(chiave).replace(/_/g, " ");
   return `<span class="chip consiglio ${esc(chiave)}">${esc(testo)}</span>`;
+}
+
+/* Un campo di credenziale. Quelle segrete escono a pallini con l'occhiello
+   accanto: si incolla una chiave alla cieca, e l'unico modo di accorgersi di
+   averne incollata una sbagliata e' poterla rileggere. */
+function campoCredenziale(voce) {
+  const id = `cred-${voce.chiave}`;
+  const daEnv = voce.origine === "ambiente";
+  const campo = `<input class="input" id="${id}" data-cred="${esc(voce.chiave)}"
+      type="${voce.segreta ? "password" : "text"}" value="${esc(voce.valore || "")}"
+      autocomplete="off" spellcheck="false">`;
+  return `<label class="field">
+    <span>${esc(voce.etichetta)}${daEnv ? ` <span class="hint">(${t("credFromEnv")})</span>` : ""}</span>
+    ${voce.segreta ? `<div class="login-password">${campo}
+      <button class="login-occhio" type="button" data-occhio="${id}" aria-label="${t("pwShow")}">
+        ${svg(ICONS.eye, 16)}</button></div>` : campo}
+    ${voce.aiuto ? `<span class="hint">${esc(voce.aiuto)}</span>` : ""}
+  </label>`;
+}
+
+function credenzialiHtml() {
+  const gruppi = [["ia", "gIa"], ["fonti", "gFonti"], ["email", "gEmail"], ["telegram", "gTelegram"]];
+  return gruppi.map(([chiave, etichetta]) => {
+    const dentro = (state.segreti || []).filter((v) => v.gruppo === chiave);
+    if (!dentro.length) return "";
+    return `<section class="cred-gruppo">
+      <h3>${t(etichetta)}</h3>
+      ${dentro.map(campoCredenziale).join("")}
+    </section>`;
+  }).join("");
 }
 
 function componentRows(breakdown) {
@@ -2800,6 +3036,18 @@ function wire() {
     // Prima della riga dell'avviso: la delega intercetta ogni clic dentro
     // `.notif`, e senza questo controllo la X aprirebbe l'offerta invece di
     // togliere la notifica.
+    const occhio = e.target.closest("[data-occhio]");
+    if (occhio) {
+      const campo = document.getElementById(occhio.dataset.occhio);
+      if (campo) {
+        const nascosto = campo.type === "password";
+        campo.type = nascosto ? "text" : "password";
+        occhio.classList.toggle("on", nascosto);
+        occhio.setAttribute("aria-label", nascosto ? t("pwHide") : t("pwShow"));
+      }
+      return;
+    }
+
     const scarta = e.target.closest("[data-del-notif]");
     if (scarta) { eliminaNotifica(+scarta.dataset.delNotif, scarta.closest(".notif")); return; }
 

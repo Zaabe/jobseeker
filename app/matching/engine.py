@@ -513,9 +513,19 @@ def score_job(
                 component.detail += " — descrizione breve, il ruolo pesa di piu'"
 
     # Solo le componenti valutabili entrano nella media, con i pesi rinormalizzati.
-    evaluated = [c for c in components if c.evaluated and c.weight > 0]
+    valutabili = [c for c in components if c.evaluated]
+    evaluated = [c for c in valutabili if c.weight > 0]
     total_weight = sum(c.weight for c in evaluated)
-    score = sum(c.score * c.weight for c in evaluated) / total_weight if total_weight else 0.0
+    if total_weight:
+        score = sum(c.score * c.weight for c in evaluated) / total_weight
+    elif valutabili:
+        # Tutti i pesi a zero. L'interfaccia non lo permette, ma le impostazioni
+        # si possono scrivere anche dalle API: dare zero a ogni offerta non
+        # sarebbe un giudizio, sarebbe una divisione impossibile mascherata da
+        # risultato. Meglio la media semplice, che almeno distingue le offerte.
+        score = sum(c.score for c in valutabili) / len(valutabili)
+    else:
+        score = 0.0
 
     # Le offerte gia' scartate correggono il risultato in proporzione, senza
     # mediarsi con gli altri criteri.

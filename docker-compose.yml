@@ -22,6 +22,9 @@ services:
     container_name: jobseeker
     restart: unless-stopped
     environment:
+      # Con questa attiva e nessuna password, al primo avvio l'applicazione
+      # serve solo la pagina di configurazione: utente, password e chiavi si
+      # scelgono da lì, senza compilare niente a mano.
       JOBSEEKER_REQUIRE_AUTH: "true"
       JOBSEEKER_USER: ${JOBSEEKER_USER:-}
       JOBSEEKER_PASSWORD: ${JOBSEEKER_PASSWORD:-}

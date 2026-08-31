@@ -1,0 +1,241 @@
+<!doctype html>
+<html lang="it" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#f5f5f7">
+<meta name="robots" content="noindex">
+<title>JobSeeker — Configurazione</title>
+<link rel="icon" href="/static/icons/icon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Lexend:wght@300;400;500;600;700&display=swap">
+<link rel="stylesheet" href="/static/style.css">
+<script>
+  (function () {
+    try {
+      var s = localStorage.getItem("jobseeker-theme");
+      var dark = s ? s === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
+      document.documentElement.dataset.theme = dark ? "dark" : "light";
+    } catch (e) {}
+  })();
+</script>
+</head>
+<body class="login-page">
+
+<main class="login-shell">
+  <div class="login-card setup-card">
+
+    <div class="login-brand">
+      <span class="brand-mark">
+        <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 8h18v11a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1zM8 8V6a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+        </svg>
+      </span>
+      <span class="brand-name">JobSeeker</span>
+      <span class="setup-passo" id="passo">1 di 2</span>
+    </div>
+
+    <!-- ------------------------------------------------------- passo 1 -->
+    <form id="form-accesso">
+      <h1>Benvenuto</h1>
+      <p class="login-lead">
+        Prima di cominciare serve una password: senza, chiunque raggiunga
+        questo indirizzo leggerebbe il tuo curriculum e le tue candidature.
+      </p>
+
+      <div class="notice bad login-errore" id="errore-accesso" hidden role="alert"></div>
+
+      <label class="field">
+        <span>Nome utente</span>
+        <input class="input" type="text" id="utente" required
+               autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false">
+      </label>
+
+      <label class="field">
+        <span>Password <span class="hint">(almeno 8 caratteri)</span></span>
+        <div class="login-password">
+          <input class="input" type="password" id="password" required autocomplete="new-password">
+          <button class="login-occhio" type="button" data-occhio="password" aria-label="Mostra la password">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor"
+                 stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z"></path>
+              <circle cx="12" cy="12" r="3"></circle>
+            </svg>
+          </button>
+        </div>
+      </label>
+
+      <label class="field">
+        <span>Ripeti la password</span>
+        <input class="input" type="password" id="conferma" required autocomplete="new-password">
+      </label>
+
+      <button class="btn primary block login-invio" type="submit" id="invio-accesso">Continua</button>
+      <p class="login-foot">
+        La password non viene conservata: nel database finisce solo la sua
+        impronta, che non si puo' rileggere.
+      </p>
+    </form>
+
+    <!-- ------------------------------------------------------- passo 2 -->
+    <form id="form-chiavi" hidden>
+      <h1>Chiavi dei servizi</h1>
+      <p class="login-lead">
+        Servono per le fonti di offerte, per la valutazione con l'intelligenza
+        artificiale e per le notifiche. Puoi saltarle e aggiungerle quando vuoi
+        dalle impostazioni: l'applicazione funziona anche senza.
+      </p>
+
+      <div class="notice bad login-errore" id="errore-chiavi" hidden role="alert"></div>
+
+      <div id="gruppi-chiavi" class="setup-gruppi">
+        <p class="login-lead">Caricamento…</p>
+      </div>
+
+      <div class="setup-azioni">
+        <button class="btn" type="button" id="salta">Salta per ora</button>
+        <button class="btn primary" type="submit" id="invio-chiavi">Salva e inizia</button>
+      </div>
+    </form>
+
+  </div>
+</main>
+
+<script>
+(function () {
+  const $ = (s) => document.querySelector(s);
+  const esc = (v) => String(v ?? "")
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+
+  const GRUPPI = {
+    ia: "Intelligenza artificiale",
+    fonti: "Fonti di offerte",
+    email: "Notifiche via email",
+    telegram: "Notifiche su Telegram",
+  };
+
+  /* L'occhiello vale per qualunque campo nascosto della pagina: quello della
+     password al passo 1 e tutte le chiavi al passo 2. Un solo gestore, agganciato
+     una volta sola, invece di uno per campo ricreato a ogni disegno. */
+  document.addEventListener("click", (e) => {
+    const bottone = e.target.closest("[data-occhio]");
+    if (!bottone) return;
+    const campo = document.getElementById(bottone.dataset.occhio);
+    if (!campo) return;
+    const nascosto = campo.type === "password";
+    campo.type = nascosto ? "text" : "password";
+    bottone.classList.toggle("on", nascosto);
+    bottone.setAttribute("aria-label", nascosto ? "Nascondi" : "Mostra");
+  });
+
+  const mostraErrore = (dove, testo) => {
+    const box = $(dove);
+    box.textContent = testo;
+    box.hidden = !testo;
+  };
+
+  // ------------------------------------------------------------- passo 1 --
+  $("#form-accesso").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const utente = $("#utente").value.trim();
+    const password = $("#password").value;
+    if (password !== $("#conferma").value) {
+      mostraErrore("#errore-accesso", "Le due password non coincidono.");
+      return;
+    }
+    if (password.length < 8) {
+      mostraErrore("#errore-accesso", "La password deve avere almeno 8 caratteri.");
+      return;
+    }
+    const invio = $("#invio-accesso");
+    invio.disabled = true;
+    try {
+      const r = await fetch("/api/setup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ utente, password }),
+      });
+      if (!r.ok) throw new Error(((await r.json().catch(() => ({}))).error) || "Errore " + r.status);
+      mostraErrore("#errore-accesso", "");
+      apriPasso2();
+    } catch (err) {
+      mostraErrore("#errore-accesso", err.message);
+      invio.disabled = false;
+    }
+  });
+
+  // ------------------------------------------------------------- passo 2 --
+  async function apriPasso2() {
+    $("#form-accesso").hidden = true;
+    $("#form-chiavi").hidden = false;
+    $("#passo").textContent = "2 di 2";
+    try {
+      const dati = await (await fetch("/api/secrets")).json();
+      disegnaChiavi(dati.voci || []);
+    } catch (e) {
+      $("#gruppi-chiavi").innerHTML =
+        "<div class=\"notice\">Non sono riuscito a leggere l'elenco. Puoi aggiungere le chiavi dalle impostazioni.</div>";
+    }
+  }
+
+  function disegnaChiavi(voci) {
+    const ordine = Object.keys(GRUPPI);
+    $("#gruppi-chiavi").innerHTML = ordine.map((gruppo) => {
+      const dentro = voci.filter((v) => v.gruppo === gruppo);
+      if (!dentro.length) return "";
+      return `<section class="setup-gruppo">
+        <h2>${esc(GRUPPI[gruppo])}</h2>
+        ${dentro.map((v) => campo(v)).join("")}
+      </section>`;
+    }).join("");
+  }
+
+  function campo(v) {
+    const id = "k-" + v.chiave;
+    const daAmbiente = v.origine === "ambiente";
+    return `<label class="field">
+      <span>${esc(v.etichetta)}${daAmbiente ? ' <span class="hint">(già nel file .env)</span>' : ""}</span>
+      ${v.segreta ? `<div class="login-password">
+        <input class="input" type="password" id="${id}" data-chiave="${esc(v.chiave)}"
+               value="${esc(v.valore)}" autocomplete="off" spellcheck="false">
+        <button class="login-occhio" type="button" data-occhio="${id}" aria-label="Mostra">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor"
+               stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z"></path>
+            <circle cx="12" cy="12" r="3"></circle>
+          </svg>
+        </button>
+      </div>` : `<input class="input" type="text" id="${id}" data-chiave="${esc(v.chiave)}"
+               value="${esc(v.valore)}" autocomplete="off" spellcheck="false">`}
+      ${v.aiuto ? `<span class="hint">${esc(v.aiuto)}</span>` : ""}
+    </label>`;
+  }
+
+  $("#salta").addEventListener("click", () => { location.href = "/"; });
+
+  $("#form-chiavi").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const invio = $("#invio-chiavi");
+    invio.disabled = true;
+    const valori = {};
+    document.querySelectorAll("[data-chiave]").forEach((i) => { valori[i.dataset.chiave] = i.value.trim(); });
+    try {
+      const r = await fetch("/api/secrets", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(valori),
+      });
+      if (!r.ok) throw new Error(((await r.json().catch(() => ({}))).error) || "Errore " + r.status);
+      location.href = "/";
+    } catch (err) {
+      mostraErrore("#errore-chiavi", err.message);
+      invio.disabled = false;
+    }
+  });
+
+  $("#utente").focus();
+})();
+</script>
+</body>
+</html>
