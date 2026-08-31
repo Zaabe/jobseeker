@@ -84,10 +84,10 @@ precedenza, così cambiare una chiave non richiede di rifare il contenitore.
 ## 4. Avviare
 
 ```bash
-docker compose up -d --build
+docker compose up -d
 ```
 
-La prima volta impiega qualche minuto: costruisce l'immagine e Caddy chiede
+La prima volta impiega qualche minuto: scarica l'immagine e Caddy chiede
 il certificato. Per seguire cosa succede:
 
 ```bash
@@ -233,7 +233,7 @@ primo avvio ritrovi tutto com'era.
 docker compose logs -f jobseeker    # cosa sta facendo
 docker compose restart jobseeker    # riavvio
 docker compose down                 # ferma tutto (i dati restano)
-docker compose up -d --build        # dopo aver aggiornato il codice
+docker compose pull && docker compose up -d   # aggiorna all'immagine nuova
 ```
 
 **Backup.** Tutto cio' che conta sta nel volume `jobseeker-data`:
@@ -276,8 +276,13 @@ questo server e che le porte 80 e 443 siano aperte. Controlla con
 certificato valido. Su `http://` il browser le blocca e basta. Telegram
 invece funziona in ogni caso.
 
-**Ho cambiato il codice e non vedo differenza.** L'immagine va ricostruita:
-`docker compose up -d --build`. Ricaricare la pagina non basta.
+**Ho cambiato il codice e non vedo differenza.** Questo `docker-compose.yml`
+usa un'immagine gia' pubblicata e non ha una sezione `build:`, quindi
+`--build` non ricostruisce niente: il codice modificato in locale non entra
+nel contenitore. Per aggiornare si scarica l'immagine nuova con
+`docker compose pull && docker compose up -d`; per far entrare del codice
+proprio bisogna prima costruire e pubblicare l'immagine, oppure aggiungere
+`build: .` al servizio. Ricaricare la pagina non basta in nessuno dei due casi.
 
 ---
 

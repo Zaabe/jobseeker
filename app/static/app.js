@@ -142,6 +142,8 @@ const T = {
     llmModel: "Modello", llmModelDefault: "Predefinito del fornitore:",
     llmEnable: "Attiva la valutazione semantica", llmWeight: "Peso del giudizio del modello",
     llmFloor: "Valuta ogni offerta sopra un punteggio lessicale di", llmMax: "Massimo valutazioni per ciclo",
+    llmTest: "Prova", llmTesting: "Provo…",
+    llmTestOk: "Funziona", llmTestNo: "Non ha funzionato",
     aiWaiting: "offerte sopra soglia aspettano ancora il giudizio del modello.",
     aiDone: "Tutte le offerte sopra soglia sono state valutate.",
     aiConcerns: "Perché potrebbe non fare per te",
@@ -335,6 +337,8 @@ const T = {
     llmModel: "Model", llmModelDefault: "Provider default:",
     llmEnable: "Enable semantic evaluation", llmWeight: "Weight of the model's judgement",
     llmFloor: "Evaluate every posting above a lexical score of", llmMax: "Max evaluations per cycle",
+    llmTest: "Test", llmTesting: "Testing…",
+    llmTestOk: "It works", llmTestNo: "It did not work",
     aiWaiting: "postings above the threshold are still waiting for the model.",
     aiDone: "Every posting above the threshold has been evaluated.",
     aiConcerns: "Why it might not be for you",
@@ -1881,8 +1885,7 @@ async function loadSettings(alsoRender = true) {
   const data = await api("/api/settings");
   // Le credenziali stanno su una chiamata a parte: le impostazioni si leggono
   // di continuo, e una chiave API non ha motivo di viaggiare ogni volta.
-  state.segreti = data.auth === false ? [] : await api("/api/secrets")
-    .then((d) => d.voci || []).catch(() => []);
+  state.segreti = await api("/api/secrets").then((d) => d.voci || []).catch(() => []);
   state.settings = data.settings;
   state.meta = { smtp: data.smtp || {}, telegram: data.telegram || {}, llm: data.llm || {},
                  auth: !!data.auth, auth_user: data.auth_user || "" };
@@ -2084,9 +2087,13 @@ function renderSettings() {
               <b>${t("llmModel")}${activeLlm ? ` — ${esc(activeLlm.label)}` : ""}</b>
               <span class="dflt">${t("llmModelDefault")} ${esc(activeLlm ? activeLlm.model : "—")}</span>
             </div>
-            ${dropdown("llmmodel", chosenModel || "—",
-              models.map((x) => ({ value: x, label: x, on: x === chosenModel })), { up: true })}
+            <div class="model-scelta">
+              ${dropdown("llmmodel", chosenModel || "—",
+                models.map((x) => ({ value: x, label: x, on: x === chosenModel })), { up: true })}
+              <button class="btn small" type="button" id="llm-test">${t("llmTest")}</button>
+            </div>
           </div>
+          <div id="llm-test-esito"></div>
           ${swRow("llm_enabled", t("llmEnable"))}
           <div class="row">
             <div class="row-label"><b>${t("llmWeight")}</b></div>
@@ -2307,6 +2314,24 @@ function wireSettings() {
       if (state.view === "jobs") loadJobs();
     } catch (err) { toast(err.message, "bad"); }
     e.target.disabled = false;
+  };
+
+  const provaLlm = $("#llm-test");
+  if (provaLlm) provaLlm.onclick = async () => {
+    const esito = $("#llm-test-esito");
+    provaLlm.disabled = true;
+    provaLlm.textContent = t("llmTesting");
+    esito.innerHTML = "";
+    try {
+      const r = await api("/api/llm/test", { method: "POST" });
+      esito.innerHTML = `<div class="notice ${r.ok ? "ok" : "bad"}" style="margin-top:10px">
+        <b>${r.ok ? t("llmTestOk") : t("llmTestNo")}${r.ok ? ` — ${r.secondi}s` : ""}</b>
+        ${esc(r.message || "")}</div>`;
+    } catch (e) {
+      esito.innerHTML = `<div class="notice bad" style="margin-top:10px">${esc(e.message)}</div>`;
+    }
+    provaLlm.disabled = false;
+    provaLlm.textContent = t("llmTest");
   };
 
   const salvaCred = $("#cred-save");

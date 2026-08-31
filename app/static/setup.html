@@ -39,7 +39,7 @@
     <!-- ------------------------------------------------------- passo 1 -->
     <form id="form-accesso">
       <h1>Benvenuto</h1>
-      <p class="login-lead">
+      <p class="login-lead" id="intro-accesso">
         Prima di cominciare serve una password: senza, chiunque raggiunga
         questo indirizzo leggerebbe il tuo curriculum e le tue candidature.
       </p>
@@ -72,6 +72,7 @@
       </label>
 
       <button class="btn primary block login-invio" type="submit" id="invio-accesso">Continua</button>
+      <button class="btn block" type="button" id="senza-password" hidden>Usa senza password</button>
       <p class="login-foot">
         La password non viene conservata: nel database finisce solo la sua
         impronta, che non si puo' rileggere.
@@ -129,6 +130,22 @@
     bottone.setAttribute("aria-label", nascosto ? "Nascondi" : "Mostra");
   });
 
+  /* Sul portatile la password non e' obbligatoria: l'applicazione ascolta solo
+     su 127.0.0.1 e chiederla a ogni apertura sarebbe un fastidio senza
+     contropartita. Su un server raggiungibile dalla rete invece non si passa.
+     Lo decide il server, non questa pagina. */
+  let passwordObbligatoria = true;
+
+  fetch("/api/setup").then((r) => r.json()).then((stato) => {
+    passwordObbligatoria = stato.password_obbligatoria !== false;
+    if (passwordObbligatoria) return;
+    $("#senza-password").hidden = false;
+    $("#intro-accesso").textContent =
+      "Puoi proteggere l'applicazione con una password. Su questo computer non "
+      + "e' obbligatoria: se la salti, si apre direttamente.";
+    ["utente", "password", "conferma"].forEach((id) => $("#" + id).required = false);
+  }).catch(() => {});
+
   const mostraErrore = (dove, testo) => {
     const box = $(dove);
     box.textContent = testo;
@@ -136,18 +153,7 @@
   };
 
   // ------------------------------------------------------------- passo 1 --
-  $("#form-accesso").addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const utente = $("#utente").value.trim();
-    const password = $("#password").value;
-    if (password !== $("#conferma").value) {
-      mostraErrore("#errore-accesso", "Le due password non coincidono.");
-      return;
-    }
-    if (password.length < 8) {
-      mostraErrore("#errore-accesso", "La password deve avere almeno 8 caratteri.");
-      return;
-    }
+  async function creaAccesso(utente, password) {
     const invio = $("#invio-accesso");
     invio.disabled = true;
     try {
@@ -163,7 +169,23 @@
       mostraErrore("#errore-accesso", err.message);
       invio.disabled = false;
     }
+  }
+
+  $("#form-accesso").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const password = $("#password").value;
+    if (password !== $("#conferma").value) {
+      mostraErrore("#errore-accesso", "Le due password non coincidono.");
+      return;
+    }
+    if (password.length < 8) {
+      mostraErrore("#errore-accesso", "La password deve avere almeno 8 caratteri.");
+      return;
+    }
+    creaAccesso($("#utente").value.trim(), password);
   });
+
+  $("#senza-password").addEventListener("click", () => creaAccesso("", ""));
 
   // ------------------------------------------------------------- passo 2 --
   async function apriPasso2() {

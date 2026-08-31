@@ -29,6 +29,11 @@ ALGORITMO = "pbkdf2_sha256"
 
 CHIAVE_UTENTE = "auth_user"
 CHIAVE_IMPRONTA = "auth_password"
+# Il segno che la procedura di primo avvio e' stata fatta. Serve perche' "e' la
+# prima volta" non si puo' dedurre dall'assenza di una password: su un
+# portatile la password non serve, e senza questo segno la procedura
+# ricomparirebbe a ogni avvio.
+CHIAVE_CONFIGURATO = "setup_done"
 
 
 def impronta(password: str) -> str:
@@ -95,15 +100,58 @@ def firma_sessione() -> str:
     return db.get_setting(CHIAVE_IMPRONTA, "") or AUTH_PASSWORD
 
 
-def serve_configurazione() -> bool:
-    """Primo avvio: protezione richiesta ma nessuna credenziale da nessuna parte.
+def gia_configurato() -> bool:
+    return db.get_setting(CHIAVE_CONFIGURATO, "") == "1"
 
-    Prima l'applicazione si rifiutava di partire, il che e' sicuro ma lascia
-    chi la riceve davanti a un contenitore che muore e a un file da compilare
-    al buio. Adesso parte e serve solo la pagina di configurazione: niente
-    dati, niente API, finche' non c'e' una password.
+
+def segna_configurato() -> None:
+    db.set_setting(CHIAVE_CONFIGURATO, "1")
+
+
+def _ha_dati() -> bool:
+    riga = db.query_one(
+        "SELECT (SELECT COUNT(*) FROM cv) + (SELECT COUNT(*) FROM job) "
+        "     + (SELECT COUNT(*) FROM provider) AS quanti")
+    return bool(riga and riga["quanti"])
+
+
+def riconosci_installazione_esistente() -> None:
+    """Un'installazione che gira da tempo non e' al primo avvio.
+
+    Il segno di "configurazione fatta" nasce con questa versione: chi aggiorna
+    non ce l'ha, e senza questo controllo si troverebbe la procedura di primo
+    avvio davanti a un archivio pieno di offerte. Si considera gia' configurata
+    quella che ha delle credenziali o dei dati dentro.
     """
-    return REQUIRE_AUTH and not impostate()
+    if gia_configurato():
+        return
+    if impostate() or _ha_dati():
+        segna_configurato()
+
+
+def password_obbligatoria() -> bool:
+    """Se la password si puo' saltare oppure no.
+
+    Su un server raggiungibile dalla rete non e' negoziabile, ed e' quello che
+    dice `JOBSEEKER_REQUIRE_AUTH`. Sul portatile di chi la usa, dove
+    l'applicazione ascolta solo su 127.0.0.1, chiedere una password a ogni
+    apertura e' un fastidio senza contropartita.
+    """
+    return REQUIRE_AUTH
+
+
+def serve_configurazione() -> bool:
+    """Se va mostrata la procedura di primo avvio.
+
+    Due casi. Il primo: protezione richiesta e nessuna credenziale da nessuna
+    parte - prima l'applicazione si rifiutava di partire, il che e' sicuro ma
+    lascia chi la riceve davanti a un contenitore che muore e a un file da
+    compilare al buio. Il secondo: non e' mai stata configurata, e allora la
+    procedura serve comunque, foss'anche solo per incollare le chiavi.
+    """
+    if REQUIRE_AUTH and not impostate():
+        return True
+    return not gia_configurato()
 
 
 def protetto() -> bool:

@@ -24,8 +24,9 @@ WORKDIR /app
 # I requisiti si copiano prima del codice: cosi' Docker riusa il livello con
 # le dipendenze quando cambia soltanto l'applicazione.
 COPY requirements.txt ./
-RUN pip install --no-cache-dir -r requirements.txt \
-    && pip install --no-cache-dir "google-genai>=1.0"
+# `google-genai` sta ora in requirements.txt, cosi' l'immagine e l'avvio dal
+# file .bat installano le stesse cose.
+RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app ./app
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh

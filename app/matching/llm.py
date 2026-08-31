@@ -176,7 +176,8 @@ def is_available(name: str) -> tuple[bool, str]:
     if info is None:
         return False, f"fornitore sconosciuto: {name}"
     if not SECRETS.get(info["secret"]):
-        return False, f"{info['env_var']} non impostata nel file .env"
+        return False, (f"{info['env_var']} non impostata: scrivi la chiave in "
+                       "Impostazioni, sotto «Credenziali dei servizi», oppure nel file .env")
     if not _has_package(info["package"]):
         return False, f"libreria mancante: installala con  {info['install']}"
     return True, "disponibile"
@@ -449,6 +450,52 @@ def read_cv(text: str, provider: str = DEFAULT_PROVIDER, model: str = "",
     lettura = _chiedi(provider, model, SYSTEM_CV,
                       build_cv_prompt(text, education_labels or []), CvReading, 3000)
     return lettura if isinstance(lettura, CvReading) else None
+
+
+# Un annuncio minimo e un profilo minimo: alla prova non interessa il giudizio,
+# interessa sapere se la chiave, la libreria e il modello stanno insieme.
+class _FintaOfferta:
+    title = "Tecnico di laboratorio"
+    company = "Prova"
+    location = "Milano"
+    description = "Analisi di controllo qualita' in laboratorio."
+
+
+class _FintoProfilo:
+    education_label = "Laurea triennale"
+    education_fields = ["Chimica"]
+    years_experience = 2
+    roles = ["tecnico di laboratorio"]
+    languages = ["Italiano"]
+    skills = ["HPLC"]
+    raw_text = "Tecnico di laboratorio con esperienza in analisi chimiche."
+
+
+def prova(provider: str = DEFAULT_PROVIDER, model: str = "") -> tuple[bool, str]:
+    """Interroga davvero il modello e riporta l'errore esatto se non risponde.
+
+    `evaluate` inghiotte gli errori di proposito, perche' un problema di rete
+    non deve far fallire il ciclo di controllo. Qui e' l'opposto: il motivo del
+    fallimento e' l'unica cosa che si vuole sapere, ed e' quello che distingue
+    "chiave sbagliata" da "libreria mancante" da "modello inesistente".
+    """
+    disponibile, motivo = is_available(provider)
+    if not disponibile:
+        return False, motivo
+
+    backend = _BACKENDS.get(provider)
+    if backend is None:
+        return False, f"fornitore sconosciuto: {provider}"
+
+    nome_modello = model.strip() or provider_info(provider)["model"]
+    try:
+        verdetto = backend(build_prompt(_FintaOfferta(), _FintoProfilo()),
+                           nome_modello, SYSTEM, LlmVerdict, 600)
+    except Exception as exc:
+        return False, f"{type(exc).__name__}: {str(exc)[:220]}"
+    if not isinstance(verdetto, LlmVerdict):
+        return False, "risposta non conforme allo schema"
+    return True, f"{provider_info(provider)['label']} ha risposto con {nome_modello}"
 
 
 def blend(lexical_score: float, verdict: LlmVerdict | None, llm_weight: float) -> float:

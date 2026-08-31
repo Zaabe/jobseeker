@@ -8,8 +8,14 @@ python-multipart>=0.0.9
 rapidfuzz>=3.9
 jinja2>=3.1
 
-# Opzionali: servono solo se si attiva il livello semantico dalle impostazioni.
-# Basta quella del fornitore scelto. Senza, l'applicazione funziona ugualmente
-# con il solo motore lessicale.
-# google-genai>=1.0     # per Google Gemini (chiave gratuita)
-# anthropic>=1.0        # per Anthropic Claude
+# Google Gemini: e' il fornitore predefinito del livello semantico e la sua
+# chiave e' gratuita, quindi la libreria si installa sempre. Era commentata, e
+# il risultato era che l'immagine Docker la installava per conto suo mentre chi
+# avviava dal file .bat si ritrovava senza: la chiave veniva accettata e poi
+# l'applicazione diceva di non poterla usare.
+google-genai>=1.0
+
+# Anthropic Claude resta facoltativo: richiede un'organizzazione Console con
+# fatturazione, quindi non ha senso installarlo per tutti. Serve solo a chi
+# sceglie quel fornitore dalle impostazioni.
+# anthropic>=1.0

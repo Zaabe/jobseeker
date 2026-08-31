@@ -49,6 +49,10 @@ MAX_CV_BYTES = 10 * 1024 * 1024
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     db.init_db()
+    # Prima di decidere se mostrare la procedura di primo avvio: chi aggiorna
+    # da una versione precedente ha gia' tutto configurato, semplicemente non
+    # ha il segno che lo dice.
+    accesso.riconosci_installazione_esistente()
     scheduler.start()
     # Dentro un contenitore l'indirizzo utile e' quello del reverse proxy, non
     # 127.0.0.1: scriverlo qui manderebbe fuori strada chi legge i log.
@@ -1074,6 +1078,21 @@ def update_settings(values: dict[str, Any] = Body(...)) -> dict[str, Any]:
     return {"settings": db.all_settings()}
 
 
+@app.post("/api/llm/test")
+async def test_llm() -> dict[str, Any]:
+    """Una richiesta vera al fornitore configurato, per vedere se funziona.
+
+    Serve piu' del riquadro di stato: quello dice solo se chiave e libreria ci
+    sono, questo prova a usarle. Una chiave scritta male, un modello che non
+    esiste piu' o la quota esaurita si vedono solo cosi'.
+    """
+    provider = db.get_setting("llm_provider", llm.DEFAULT_PROVIDER)
+    modello = db.get_setting("llm_model", "")
+    inizio = time.monotonic()
+    ok, messaggio = await asyncio.to_thread(llm.prova, provider, modello)
+    return {"ok": ok, "message": messaggio, "secondi": round(time.monotonic() - inizio, 1)}
+
+
 @app.get("/api/llm/models")
 def llm_models(provider: str = "") -> dict[str, Any]:
     """Modelli disponibili con la chiave configurata, per la pagina Impostazioni."""
@@ -1388,18 +1407,37 @@ def setup_page() -> Response:
     return FileResponse(STATIC_DIR / "setup.html")
 
 
+@app.get("/api/setup", include_in_schema=False)
+def setup_stato() -> dict[str, Any]:
+    """Cosa deve chiedere la procedura di primo avvio."""
+    return {
+        "password_obbligatoria": accesso.password_obbligatoria(),
+        "da_configurare": accesso.serve_configurazione(),
+    }
+
+
 @app.post("/api/setup", include_in_schema=False)
 def setup(request: Request, payload: SetupIn) -> Response:
-    """Crea le prime credenziali. Vale una volta sola."""
+    """Chiude la procedura di primo avvio. Vale una volta sola."""
     if not accesso.serve_configurazione():
         raise HTTPException(409, "la configurazione e' gia' stata completata")
+
+    if not payload.password:
+        # Password saltata: si puo' solo dove non e' obbligatoria, cioe' in
+        # locale. L'applicazione resta aperta come e' sempre stata li'.
+        if accesso.password_obbligatoria():
+            raise HTTPException(400, "su questa installazione la password e' obbligatoria")
+        accesso.segna_configurato()
+        return JSONResponse({"status": "configurato", "protetto": False})
+
     if len(payload.password) < PASSWORD_MINIMA:
         raise HTTPException(400, f"la password deve avere almeno {PASSWORD_MINIMA} caratteri")
     accesso.imposta(payload.utente, payload.password)
+    accesso.segna_configurato()
     scorda_chiave()
     # Si entra gia' dentro: chiedere di rifare l'accesso subito dopo averlo
     # creato e' un passaggio che non serve a nulla.
-    risposta = JSONResponse({"status": "configurato"})
+    risposta = JSONResponse({"status": "configurato", "protetto": True})
     _cookie_di_sessione(request, risposta)
     return risposta
 
@@ -1416,6 +1454,7 @@ def update_credentials(request: Request, payload: CredenzialiIn) -> Response:
     if len(payload.password) < PASSWORD_MINIMA:
         raise HTTPException(400, f"la password deve avere almeno {PASSWORD_MINIMA} caratteri")
     accesso.imposta(payload.utente or accesso.utente(), payload.password)
+    accesso.segna_configurato()
     # La chiave di firma dipende dalla password: cambiandola, le sessioni
     # aperte altrove decadono. Questa la si rinnova subito, altrimenti chi ha
     # appena cambiato la password si troverebbe buttato fuori.

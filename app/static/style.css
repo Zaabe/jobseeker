@@ -634,6 +634,11 @@ input[type=range]::-moz-range-thumb { width: 17px; height: 17px; border: 0; bord
 .guide-body code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px; background: var(--fl3); padding: 1px 5px; border-radius: 4px; }
 .guide-actions { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
 
+/* Il menu del modello e il pulsante di prova stanno insieme in fondo alla
+   riga: la prova riguarda quel modello, e allontanarla lo farebbe sembrare un
+   comando generico. */
+.model-scelta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+
 .weights { display: grid; grid-template-columns: 1fr 1fr; gap: 16px 26px; }
 .weight > div { display: flex; justify-content: space-between; font-size: 12.5px; margin-bottom: 6px; }
 .weight > div span:first-child { color: var(--tx2); font-weight: 500; }
@@ -1123,6 +1128,11 @@ input[type=range]::-moz-range-thumb { width: 17px; height: 17px; border: 0; bord
 .setup-card { max-width: 560px; }
 .setup-card h1 { margin: 6px 0 0; font-size: 22px; font-weight: 600; letter-spacing: -.02em; }
 .setup-card form { display: flex; flex-direction: column; gap: 14px; }
+/* `display: flex` qui sopra batte l'attributo `hidden`, che nel foglio di stile
+   del browser vale meno di una classe: senza questa riga i due passi della
+   procedura comparivano tutti e due insieme, uno sotto l'altro. Stessa
+   trappola gia' vista sul pallino delle notifiche. */
+.setup-card form[hidden] { display: none; }
 
 .setup-passo {
   margin-left: auto; font-size: 11.5px; font-weight: 600; color: var(--tx4);
