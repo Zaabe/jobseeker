@@ -253,6 +253,16 @@ class BaseProvider:
         # una chiamata di dettaglio per ogni offerta (SmartRecruiters, Workday,
         # LinkedIn): per quelle non c'e' niente da riscaricare.
         self.known_ids: set[str] = set()
+        # Tutte le offerte gia' in archivio, con o senza descrizione. E' una
+        # domanda diversa da quella di sopra e serve a chi sfoglia un elenco a
+        # pagine: quando una pagina non porta piu' niente di nuovo, sotto c'e'
+        # solo roba gia' vista e si puo' smettere di scaricare.
+        self.id_in_archivio: set[str] = set()
+        # Un foglietto che sopravvive al singolo giro: il runner lo rilegge
+        # dalla riga della fonte prima di `fetch` e lo riscrive dopo. Contiene
+        # quello che l'adapter ci mette (LinkedIn: a che punto dell'elenco era
+        # arrivato a scendere) e dev'essere convertibile in JSON.
+        self.stato: dict[str, Any] = {}
         # Tetto di chiamate di dettaglio per singolo ciclo, per non trasformare
         # un provider con migliaia di annunci in centinaia di richieste.
         self.detail_budget: int = 40

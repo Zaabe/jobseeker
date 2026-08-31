@@ -207,6 +207,12 @@ MIGRATIONS: list[tuple[str, str, str]] = [
     # Come e' stato letto il curriculum e su cosa le due letture non erano
     # d'accordo. Serve a non far passare per certo un dato che certo non e'.
     ("cv", "parse_json", "TEXT NOT NULL DEFAULT '{}'"),
+    # Un foglietto che la fonte si lascia da un giro all'altro. Serve a chi
+    # sfoglia un elenco a pagine e deve ricordarsi dov'era arrivato: senza,
+    # ogni giro ricomincerebbe dalla prima pagina e il fondo dell'elenco non
+    # verrebbe letto mai. Il contenuto lo decide l'adapter, il runner lo
+    # trasporta e basta.
+    ("provider", "stato_json", "TEXT NOT NULL DEFAULT '{}'"),
 ]
 
 

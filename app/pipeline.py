@@ -389,19 +389,25 @@ class Pipeline:
             "provider_id": provider_id, "label": row["label"], "kind": row["kind"],
             "fetched": 0, "new": 0, "ok": False, "error": "",
         }
+        provider = None
         try:
             provider = build(row["kind"], config, http)
-            # Le offerte di cui l'archivio ha gia' la descrizione: sono quelle
-            # che gli adapter possono saltare quando scaricano i dettagli.
-            # Prima qui finivano tutte le offerte salvate, descrizione o no, e
-            # quelle rimaste fuori dal tetto di un ciclo non venivano piu'
-            # completate mai: erano "gia' note" e venivano saltate per sempre.
-            provider.known_ids = {
-                r["external_id"] for r in db.query(
-                    "SELECT external_id FROM job WHERE provider_id = ? "
-                    "AND COALESCE(description, '') <> ''", (provider_id,)
-                )
-            }
+            # Due domande diverse, una lettura sola. `known_ids` sono le
+            # offerte di cui l'archivio ha gia' la descrizione, e sono quelle
+            # che gli adapter saltano quando scaricano i dettagli: prima qui
+            # finivano tutte le offerte salvate, descrizione o no, e quelle
+            # rimaste fuori dal tetto di un ciclo non venivano piu' completate
+            # mai. `id_in_archivio` sono tutte quante, e servono a chi sfoglia
+            # un elenco a pagine per sapere quando ha smesso di trovare novita'.
+            righe = db.query(
+                "SELECT external_id, COALESCE(description, '') <> '' AS con_testo "
+                "FROM job WHERE provider_id = ?", (provider_id,))
+            provider.id_in_archivio = {r["external_id"] for r in righe}
+            provider.known_ids = {r["external_id"] for r in righe if r["con_testo"]}
+            try:
+                provider.stato = json.loads(row["stato_json"] or "{}")
+            except (ValueError, IndexError, KeyError):
+                provider.stato = {}
             postings = await provider.fetch(specs)
         except ProviderError as exc:
             outcome["error"] = str(exc)
@@ -425,6 +431,16 @@ class Pipeline:
             outcome.update(ok=True, fetched=len(kept), new=len(new_ids), new_ids=new_ids)
             log.info("%s: %d offerte pertinenti su %d elencate, %d nuove",
                      row["label"], len(kept), len(postings), len(new_ids))
+
+        # Il foglietto della fonte si riscrive anche quando il giro e' andato
+        # male: chi sfoglia un elenco puo' essere sceso di qualche pagina prima
+        # di trovare la porta chiusa, e quel progresso non va perso.
+        if provider is not None and provider.stato:
+            try:
+                db.execute("UPDATE provider SET stato_json = ? WHERE id = ?",
+                           (json.dumps(provider.stato, ensure_ascii=False)[:4000], provider_id))
+            except Exception as exc:
+                log.warning("%s: stato della fonte non salvato (%s)", row["label"], exc)
 
         # Le offerte sono gia' state archiviate: quello che resta e' la
         # contabilita' del provider. Se fallisce, si perde una riga di

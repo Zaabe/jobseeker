@@ -140,11 +140,22 @@ dalle altre e conviene saperlo prima di aggiungerla:
 - **si romperà, ogni tanto.** L'HTML cambia senza preavviso: quando succede la fonte
   smette di restituire offerte e va sistemata. Le altre dodici continuano a funzionare;
 - **LinkedIn conta le richieste** e a un certo punto risponde `999` o mostra il muro del
-  login. Per questo il ritmo è basso di proposito: una pagina (~25 offerte) per parola
-  chiave, mezz'ora di intervallo minimo, qualche secondo fra una richiesta e l'altra, e le
-  descrizioni scaricate solo per le offerte che superano il filtro di pertinenza. Se la
-  fonte viene rifiutata, l'attesa raddoppia da sola a ogni tentativo fallito, come per
-  tutte le altre.
+  login. Per questo il ritmo è basso di proposito: mezz'ora di intervallo minimo, qualche
+  secondo fra una richiesta e l'altra, e le descrizioni scaricate solo per le offerte che
+  superano il filtro di pertinenza. La ricerca è limitata agli **ultimi 7 giorni**: senza
+  limite di data l'elenco di una parola chiave è lungo migliaia di annunci e non si
+  esaurisce mai. Il campo *Solo gli ultimi giorni* alza o toglie il limite (`0` = nessun
+  limite, molte più richieste). Se la fonte viene rifiutata, l'attesa raddoppia da sola a
+  ogni tentativo fallito, come per tutte le altre.
+
+**Come scorre l'elenco.** LinkedIn restituisce **dieci offerte per richiesta**, e ogni giro
+ne legge quattro pagine per parola chiave, spese in due modi: le prime due guardano la
+**testa** dell'elenco, dov'è che compaiono gli annunci nuovi; le altre scendono **più in
+basso**, riprendendo da dove il giro precedente si era fermato. Il segnaposto è salvato
+insieme alla fonte, quindi nel giro di qualche controllo l'elenco viene percorso tutto e poi
+si ricomincia dalla cima. Senza la seconda passata la fonte si bloccherebbe: dopo il primo
+giro la testa dell'elenco è già tutta in archivio, e continuerebbe a rileggere le stesse
+dieci offerte all'infinito.
 
 Si aggiunge come le altre: incolla l'indirizzo di una ricerca LinkedIn
 (`https://www.linkedin.com/jobs/search/?keywords=laboratorio&location=Italia`) — parole

@@ -12,10 +12,11 @@ account. Tre cose vanno dette prima del codice.
    e' difensiva - piu' selettori per ogni campo, e una scheda malformata viene
    saltata invece di far cadere il giro.
 3. LinkedIn conta le richieste per indirizzo IP e risponde `999` a chi esagera.
-   Il ritmo qui e' volutamente basso: una pagina per parola chiave, mezz'ora di
-   intervallo minimo, qualche secondo di pausa fra due richieste. Le
-   descrizioni si scaricano solo per le offerte che hanno superato il filtro di
-   pertinenza, come per SmartRecruiters e Workday.
+   Il ritmo qui e' volutamente basso: mezz'ora di intervallo minimo, qualche
+   secondo di pausa fra due richieste, e le pagine dell'elenco si sfogliano
+   finche' portano offerte mai viste, con un tetto di quattro. Le descrizioni si
+   scaricano solo per le offerte che hanno superato il filtro di pertinenza,
+   come per SmartRecruiters e Workday.
 """
 from __future__ import annotations
 
@@ -51,11 +52,35 @@ log = logging.getLogger("jobseeker.providers")
 
 
 # Il ritmo. Sono i numeri che tengono questa fonte sotto la soglia di
-# attenzione di LinkedIn: una pagina (venticinque offerte) per parola chiave,
-# non piu' di sei parole chiave, e una pausa fra due richieste.
+# attenzione di LinkedIn: non piu' di sei parole chiave, una pausa fra due
+# richieste, un tetto di pagine per parola chiave.
+#
+# Quante pagine leggere per parola chiave a ogni giro, e come spenderle. Le
+# prime `PAGINE_IN_CIMA` guardano la testa dell'elenco, dove compaiono gli
+# annunci nuovi; quelle che avanzano scendono piu' in basso, riprendendo da dove
+# si era arrivati il giro prima (vedi `_sfoglia`).
+#
+# La divisione non e' un dettaglio: senza, una fonte che trova sempre qualcosa
+# in cima spenderebbe li' tutto il budget e non scenderebbe mai. E "trovare
+# qualcosa in cima" e' piu' facile di quanto sembri, perche' le offerte che il
+# filtro di pertinenza scarta non finiscono in archivio e quindi risultano nuove
+# a ogni giro.
+#
+# Quattro pagine per parola chiave sono quaranta offerte a giro e ventiquattro
+# richieste nel caso peggiore, ogni mezz'ora.
 MAX_TERMINI = 6
+MAX_PAGINE = 4
+PAGINE_IN_CIMA = 2
 MAX_DETTAGLI = 15
 PAUSA = 4.0
+
+# Finestra temporale predefinita. Serve allo stesso scopo: senza filtro di data
+# l'elenco di una parola chiave e' lungo migliaia di annunci e non finisce mai,
+# mentre gli ultimi sette giorni sono un insieme che si esaurisce - le pagine
+# finiscono davvero, e il giro successivo si ferma quasi subito. Chi vuole
+# scendere piu' indietro mette un numero di giorni piu' grande, o 0 per togliere
+# il limite.
+GIORNI_PREDEFINITI = 7
 
 # LinkedIn risponde 999 a chi si presenta come un programma. Presentarsi come
 # un browser e' l'unico modo per ottenere le stesse pagine che il sito mostra a
@@ -225,8 +250,9 @@ class LinkedInProvider(BaseProvider):
     label = "LinkedIn"
     description = (
         "Ricerca pubblica di LinkedIn, letta come la vede un visitatore senza account. "
-        "Non e' un'API: il ritmo e' basso di proposito (una pagina per parola chiave, "
-        "mezz'ora fra un giro e l'altro) e la fonte e' meno affidabile delle altre, "
+        "Non e' un'API: il ritmo e' basso di proposito (mezz'ora fra un giro e l'altro, "
+        "ultimi sette giorni, quattro pagine per parola chiave) e la fonte e' meno "
+        "affidabile delle altre, "
         "perche' LinkedIn puo' cambiare le pagine o rifiutare le richieste."
     )
     needs_credentials = False
@@ -242,7 +268,8 @@ class LinkedInProvider(BaseProvider):
          "help": "Vuoto significa usare le parole chiave delle ricerche salvate, "
                  "una richiesta per parola."},
         {"name": "days", "label": "Solo gli ultimi giorni", "placeholder": "7", "required": False,
-         "help": "Vuoto significa nessun limite di data, con gli annunci piu' recenti per primi."},
+         "help": "Vuoto significa gli ultimi 7 giorni. Un numero piu' grande scende piu' "
+                 "indietro nel tempo; 0 toglie il limite, ma allunga di molto ogni giro."},
     ]
 
     RICERCA = "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search"
@@ -354,10 +381,18 @@ class LinkedInProvider(BaseProvider):
         return next((s.location for s in searches or [] if s.location), "")
 
     def _giorni(self) -> int:
+        """La finestra di date da chiedere a LinkedIn, in giorni.
+
+        Campo vuoto significa il valore predefinito, non "nessun limite": senza
+        limite l'elenco non si esaurisce mai. Per togliere il limite si scrive 0.
+        """
+        scritto = _pulisci(str(self.config.get("days", "")))
+        if not scritto:
+            return GIORNI_PREDEFINITI
         try:
-            return max(0, int(_pulisci(str(self.config.get("days", ""))) or 0))
+            return max(0, int(scritto))
         except ValueError:
-            return 0
+            return GIORNI_PREDEFINITI
 
     async def fetch(self, searches: list[SearchSpec]) -> list[JobPosting]:
         if BeautifulSoup is None:
@@ -375,7 +410,96 @@ class LinkedInProvider(BaseProvider):
             # un giro con una sola parola chiave non deve aspettare per niente.
             if indice:
                 await self._pausa()
-            params: dict[str, Any] = {"start": 0, "sortBy": "DD"}
+            try:
+                await self._sfoglia(termine, luogo, giorni, remoto, trovate)
+            except _Bloccato:
+                # Quello che era gia' stato letto vale comunque: buttarlo via
+                # non renderebbe la fonte piu' sana, e il blocco si ripresenta
+                # al giro dopo alla prima richiesta, dove viene registrato.
+                if not trovate:
+                    raise
+                log.warning("LinkedIn: bloccato a meta' raccolta, tengo le %d offerte gia' lette",
+                            len(trovate))
+                break
+            except ProviderError as exc:
+                if not trovate:
+                    raise
+                log.info("LinkedIn: %r interrotta (%s), proseguo con le altre parole chiave",
+                         termine or "(senza parole chiave)", exc)
+        return list(trovate.values())
+
+    async def _sfoglia(self, termine: str, luogo: str, giorni: int, remoto: bool,
+                       trovate: dict[str, JobPosting]) -> None:
+        """Sfoglia i risultati di una parola chiave, in due passate.
+
+        LinkedIn restituisce dieci offerte per volta, non venticinque: chiedere
+        solo la prima pagina significava vedere dieci offerte per parola chiave
+        e, al giro dopo, rileggere quelle stesse dieci.
+
+        Ma nemmeno scendere finche' arrivano novita' basta, ed e' un errore che
+        questa fonte ha gia' fatto: dopo il primo giro la cima dell'elenco e'
+        tutta in archivio, la discesa si ferma subito, e quello che sta sotto
+        non viene raggiunto mai piu'. La fonte sembra viva - una richiesta,
+        dieci offerte, zero nuove - e invece e' ferma.
+
+        Quindi due passate, con due scopi diversi:
+
+        * **in cima**, sempre: e' li' che compaiono gli annunci nuovi, e si
+          scende finche' ne arrivano;
+        * **piu' giu'**, quando in cima non c'era niente di nuovo: si riprende
+          da dove si era arrivati il giro prima e si legge un altro pezzo di
+          elenco. Il segnaposto sta in `self.stato` e sopravvive al giro; quando
+          l'elenco finisce si torna in cima e si ricomincia.
+
+        Cosi' ogni giro costa lo stesso - poche pagine - ma nel corso di qualche
+        giro l'elenco viene percorso tutto.
+        """
+        cursori = self.stato.setdefault("cursori", {})
+        chiave = termine or "*"
+
+        # In anteprima una pagina sola: c'e' qualcuno che aspetta la risposta, e
+        # una pagina basta a dire se la fonte risponde e cosa restituisce.
+        cima = await self._passata(termine, luogo, giorni, remoto, trovate, inizio=0,
+                                   pagine=1 if self.anteprima else PAGINE_IN_CIMA,
+                                   fino_a_novita=True)
+        if self.anteprima:
+            return
+        if cima["esaurito"]:
+            # L'elenco finisce dentro le prime pagine: sotto non c'e' niente da
+            # esplorare e il segnaposto torna in cima.
+            cursori[chiave] = 0
+            return
+
+        restanti = MAX_PAGINE - cima["pagine"]
+        if restanti <= 0:
+            return
+        # Mai sotto quello che si e' appena letto: la passata in profondita'
+        # riprende da dopo la cima, non ripete il lavoro di due secondi fa.
+        partenza = max(cursori.get(chiave, 0), cima["fine"])
+        await self._pausa()
+        giu = await self._passata(termine, luogo, giorni, remoto, trovate,
+                                  inizio=partenza, pagine=restanti, fino_a_novita=False)
+        # Elenco finito: il giro prossimo ricomincia da sotto la cima.
+        cursori[chiave] = 0 if giu["esaurito"] else giu["fine"]
+        log.info("LinkedIn: %r, letto anche il tratto da %d a %d (%d mai viste)",
+                 termine or "(senza parole chiave)", partenza, giu["fine"], giu["nuove"])
+
+    async def _passata(self, termine: str, luogo: str, giorni: int, remoto: bool,
+                       trovate: dict[str, JobPosting], inizio: int, pagine: int,
+                       fino_a_novita: bool) -> dict[str, Any]:
+        """Legge un tratto di elenco a partire da `inizio`.
+
+        Con `fino_a_novita` si ferma alla prima pagina che non porta offerte
+        mai viste; senza, legge il numero di pagine che gli e' stato dato. In
+        entrambi i casi si ferma se l'elenco finisce o se LinkedIn ripete la
+        stessa pagina.
+        """
+        esito = {"fine": inizio, "nuove": 0, "pagine": 0, "esaurito": False}
+        precedente: set[str] = set()
+        for pagina in range(max(0, pagine)):
+            if pagina:
+                await self._pausa()
+            params: dict[str, Any] = {"start": esito["fine"], "sortBy": "DD"}
             if termine:
                 params["keywords"] = termine
             if luogo:
@@ -386,11 +510,38 @@ class LinkedInProvider(BaseProvider):
                 params["f_WT"] = "2"
 
             offerte = self._leggi_elenco(await self._pagina(self.RICERCA, params))
+            esito["pagine"] += 1
             if not offerte:
-                log.info("LinkedIn: nessun risultato per %r", termine or "(senza parole chiave)")
+                esito["esaurito"] = True
+                if not pagina and not inizio:
+                    log.info("LinkedIn: nessun risultato per %r",
+                             termine or "(senza parole chiave)")
+                return esito
+
+            identificativi = {o.external_id for o in offerte}
+            if identificativi == precedente:
+                # Stessa identica pagina della volta prima: `start` non e' stato
+                # ascoltato. Insistere vorrebbe dire rifare la stessa richiesta.
+                log.info("LinkedIn: %r restituisce sempre la stessa pagina, mi fermo",
+                         termine or "(senza parole chiave)")
+                esito["esaurito"] = True
+                return esito
+            precedente = identificativi
+
+            nuove = 0
             for offerta in offerte:
+                if offerta.external_id not in self.id_in_archivio:
+                    nuove += 1
                 trovate.setdefault(offerta.external_id, offerta)
-        return list(trovate.values())
+            esito["nuove"] += nuove
+
+            # `start` avanza del numero di schede ricevute, non di un passo
+            # fisso: se LinkedIn cambia la dimensione della pagina il conto
+            # resta giusto, e non si salta ne' si ripete niente.
+            esito["fine"] += len(offerte)
+            if fino_a_novita and not nuove:
+                return esito
+        return esito
 
     def _leggi_elenco(self, pagina: str) -> list[JobPosting]:
         """Le schede della pagina dei risultati, saltando quelle illeggibili."""
