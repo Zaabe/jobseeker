@@ -391,9 +391,15 @@ class Pipeline:
         }
         try:
             provider = build(row["kind"], config, http)
+            # Le offerte di cui l'archivio ha gia' la descrizione: sono quelle
+            # che gli adapter possono saltare quando scaricano i dettagli.
+            # Prima qui finivano tutte le offerte salvate, descrizione o no, e
+            # quelle rimaste fuori dal tetto di un ciclo non venivano piu'
+            # completate mai: erano "gia' note" e venivano saltate per sempre.
             provider.known_ids = {
                 r["external_id"] for r in db.query(
-                    "SELECT external_id FROM job WHERE provider_id = ?", (provider_id,)
+                    "SELECT external_id FROM job WHERE provider_id = ? "
+                    "AND COALESCE(description, '') <> ''", (provider_id,)
                 )
             }
             postings = await provider.fetch(specs)

@@ -248,13 +248,19 @@ class BaseProvider:
     def __init__(self, config: dict[str, Any], http: httpx.AsyncClient) -> None:
         self.config = config or {}
         self.http = http
-        # Popolato dal runner con gli external_id gia' presenti in archivio.
-        # Serve agli adapter che devono fare una chiamata di dettaglio per
-        # ogni offerta (SmartRecruiters): quelle gia' note vengono saltate.
+        # Popolato dal runner con gli external_id delle offerte di cui
+        # l'archivio ha gia' la descrizione. Serve agli adapter che devono fare
+        # una chiamata di dettaglio per ogni offerta (SmartRecruiters, Workday,
+        # LinkedIn): per quelle non c'e' niente da riscaricare.
         self.known_ids: set[str] = set()
         # Tetto di chiamate di dettaglio per singolo ciclo, per non trasformare
         # un provider con migliaia di annunci in centinaia di richieste.
         self.detail_budget: int = 40
+        # True quando la fonte viene interrogata da "Prova senza salvare".
+        # Davanti allo schermo c'e' qualcuno che aspetta, quindi gli adapter che
+        # per prudenza lavorano piano (LinkedIn: una richiesta per parola chiave
+        # e pause in mezzo) possono ridursi a un solo giro.
+        self.anteprima: bool = False
 
     # -- da implementare negli adapter ------------------------------------
 

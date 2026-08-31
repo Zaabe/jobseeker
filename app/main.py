@@ -306,10 +306,14 @@ def create_provider(payload: ProviderIn) -> dict[str, Any]:
     if payload.url and not kind:
         hit = detect_from_url(payload.url)
         if hit is None:
+            # L'elenco si ricava dal catalogo invece di stare scritto qui: era
+            # scritto a mano e aveva gia' smesso di nominare Workday.
+            riconosciute = ", ".join(sorted({p["label"] for p in catalogue()}))
             raise HTTPException(
                 400,
-                "Indirizzo non riconosciuto. Incolla il link di una board Greenhouse, Ashby, "
-                "SmartRecruiters, Workable o Recruitee, oppure scegli la fonte dall'elenco.",
+                f"Indirizzo non riconosciuto. Le fonti riconosciute sono: {riconosciute}. "
+                "Incolla il link della pagina 'lavora con noi' di un'azienda che usa uno di "
+                "questi sistemi, oppure scegli la fonte dall'elenco.",
             )
         cls, detected = hit
         kind = cls.kind
@@ -385,6 +389,7 @@ async def _probe(kind: str, config: dict[str, Any]) -> dict[str, Any]:
         try:
             provider = build(kind, config, http)
             provider.detail_budget = 3
+            provider.anteprima = True
             postings = await provider.fetch(specs)
         except ProviderError as exc:
             return {"ok": False, "error": str(exc)}
@@ -406,6 +411,7 @@ async def _probe(kind: str, config: dict[str, Any]) -> dict[str, Any]:
         async with httpx.AsyncClient(timeout=45, follow_redirects=True, headers=headers) as http2:
             anteprima = build(kind, config, http2)
             anteprima.detail_budget = 3
+            anteprima.anteprima = True
             try:
                 await anteprima.enrich(relevant[:3])
             except Exception:
@@ -1020,10 +1026,28 @@ def test_telegram() -> dict[str, Any]:
 
 @app.post("/api/notifications/telegram-chat")
 def find_telegram_chat() -> dict[str, Any]:
-    """Ricava il numero della chat dagli ultimi messaggi ricevuti dal bot."""
-    ok, message = notify.telegram.resolve_chat_id()
-    chat_id, _, testo = message.partition("|") if ok else ("", "", message)
-    return {"ok": ok, "chat_id": chat_id, "message": testo or message}
+    """Trova il numero della chat e lo salva.
+
+    Prima lo trovava e poi chiedeva di scriverlo a mano in `TELEGRAM_CHAT_ID`
+    dentro il file .env, e di riavviare: due passaggi manuali per un valore che
+    l'applicazione aveva gia' in mano. Ora lo scrive fra le credenziali, dove
+    ha la precedenza sull'ambiente, e le notifiche sono pronte.
+    """
+    chat_id, dettaglio = notify.telegram.resolve_chat_id()
+    if not chat_id:
+        return {"ok": False, "chat_id": "", "message": dettaglio}
+
+    db.set_setting(PREFISSO_SEGRETO + "telegram_chat_id", chat_id)
+    dimentica_segreti()
+    return {
+        "ok": True,
+        "chat_id": chat_id,
+        "salvato": True,
+        # L'interfaccia scrive gia' «Chat trovata: numero» sopra a questa riga:
+        # ripetere "trovata" la farebbe leggere due volte.
+        "message": f"Conversazione con {dettaglio}. Il numero e' stato salvato: "
+                   f"le notifiche su Telegram sono pronte.",
+    }
 
 
 # --------------------------------------------------------------------------
@@ -1461,6 +1485,68 @@ def update_credentials(request: Request, payload: CredenzialiIn) -> Response:
     scorda_chiave()
     risposta = JSONResponse({"status": "aggiornate", "utente": accesso.utente()})
     _cookie_di_sessione(request, risposta)
+    return risposta
+
+
+# --------------------------------------------------------------------------
+# Zona a rischio
+# --------------------------------------------------------------------------
+# Due operazioni senza ritorno, tenute insieme e segnalate come tali. Non sono
+# nascoste di proposito: chi vuole ricominciare da zero, o passare
+# l'applicazione a qualcun altro, deve poterlo fare senza andare a cancellare
+# file a mano dentro un volume Docker.
+
+
+def _svuota_cartella_curriculum() -> int:
+    """Cancella i file dei curriculum caricati. Le righe le toglie il database."""
+    quanti = 0
+    for percorso in CV_DIR.glob("*"):
+        try:
+            if percorso.is_file():
+                percorso.unlink()
+                quanti += 1
+        except OSError as exc:
+            log.warning("file del curriculum non rimosso (%s): %s", percorso.name, exc)
+    return quanti
+
+
+@app.post("/api/danger/wipe")
+def wipe_data() -> dict[str, Any]:
+    """Svuota l'archivio tenendo la configurazione.
+
+    Restano credenziali di accesso, chiavi dei servizi e recapiti per le
+    notifiche. Spariscono offerte, punteggi, curriculum, candidature, ricerche
+    e fonti: tutto quello che si puo' ricostruire raccogliendo di nuovo.
+    """
+    quante = db.svuota_dati()
+    quante["file"] = _svuota_cartella_curriculum()
+    # Le preferenze tornano a come nascono, credenziali e segreti restano dove
+    # sono: il prefisso dei segreti e `RISERVATE` dicono cosa non si tocca.
+    segnaposto = ",".join("?" * len(db.RISERVATE))
+    db.execute(
+        f"DELETE FROM setting WHERE key NOT LIKE ? AND key NOT IN ({segnaposto})",
+        (PREFISSO_SEGRETO + "%", *db.RISERVATE))
+    db.init_db()
+    pipeline.invalidate()
+    log.info("archivio svuotato: %s", quante)
+    return {"status": "svuotato", "quante": quante}
+
+
+@app.post("/api/danger/reset")
+def reset_everything() -> Response:
+    """Cancella tutto e riporta alla procedura di primo avvio.
+
+    Compreso l'accesso: la sessione in corso viene chiusa, perche' le
+    credenziali con cui era stata firmata non esistono piu'.
+    """
+    file_rimossi = _svuota_cartella_curriculum()
+    db.azzera_tutto()
+    dimentica_segreti()
+    scorda_chiave()
+    pipeline.invalidate()
+    log.info("azzeramento completo: %d file rimossi", file_rimossi)
+    risposta = JSONResponse({"status": "azzerato", "file": file_rimossi})
+    risposta.delete_cookie(COOKIE_SESSIONE, path="/")
     return risposta
 
 

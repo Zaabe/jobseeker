@@ -357,11 +357,43 @@ def set_setting(key: str, value: Any) -> None:
 # pagina delle impostazioni e fa da elenco di cio' che si puo' scrivere da li':
 # niente di tutto questo ha motivo di viaggiare fino al browser insieme ai pesi
 # del punteggio, ne' di essere modificabile dalla stessa richiesta.
-RISERVATE = ("auth_user", "auth_password", "session_secret")
+RISERVATE = ("auth_user", "auth_password", "session_secret", "setup_done")
 
 
 def riservata(chiave: str) -> bool:
     return chiave.startswith("secret_") or chiave in RISERVATE
+
+
+# L'ordine conta: le chiavi esterne hanno ON DELETE CASCADE, ma cancellare
+# prima i figli rende l'operazione prevedibile invece di dipendere dalle
+# cascate, e tiene il lock di scrittura per meno tempo su ciascun passaggio.
+TABELLE_DATI = ("notification", "application", "match", "job", "run_log",
+                "cv", "search", "provider")
+
+
+def svuota_dati() -> dict[str, int]:
+    """Cancella tutto quello che l'applicazione ha raccolto o imparato.
+
+    Non tocca la tabella delle impostazioni: le credenziali, le chiavi dei
+    servizi e la password vivono la' dentro, e chi svuota l'archivio non vuole
+    rifare la configurazione da capo.
+    """
+    quante = {}
+    for tabella in TABELLE_DATI:
+        quante[tabella] = execute(f"DELETE FROM {tabella}").rowcount
+    return quante
+
+
+def azzera_tutto() -> None:
+    """Riporta il database allo stato di un'installazione appena creata.
+
+    Anche le impostazioni: credenziali, chiavi, preferenze. Al riavvio
+    successivo l'applicazione si ritrova senza il segno di configurazione e
+    ripropone la procedura di primo avvio.
+    """
+    svuota_dati()
+    execute("DELETE FROM setting")
+    init_db()
 
 
 def all_settings() -> dict[str, str]:

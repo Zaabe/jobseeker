@@ -484,6 +484,18 @@ input[type=range]::-moz-range-thumb { width: 17px; height: 17px; border: 0; bord
 .empty .btn { margin-top: 16px; }
 .empty-inline { margin: 0; font-size: 12.5px; color: var(--tx4); line-height: 1.5; }
 
+/* Fondo dell'elenco: o il pulsante per caricare altre offerte, o la nota che
+   dice che sono finite. L'attributo `hidden` sul contenitore del pulsante non
+   basta da solo - `display: flex` lo batterebbe - quindi la regola con
+   [hidden] va scritta, come in tutti gli altri punti del foglio. */
+#jobs-pager { display: flex; justify-content: center; }
+#jobs-pager[hidden] { display: none; }
+.jobs-end {
+  margin: 2px 0 0; text-align: center; font-size: 12px; color: var(--tx5);
+  animation: fade .3s ease both;
+}
+.jobs-end[hidden] { display: none; }
+
 /* ------------------------------------------------------------ riepilogo */
 
 .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
@@ -1011,7 +1023,13 @@ input[type=range]::-moz-range-thumb { width: 17px; height: 17px; border: 0; bord
 .login-password { position: relative; }
 .login-password .input { padding-right: 42px; }
 .login-occhio {
-  position: absolute; top: 0; right: 0; height: 44px; width: 40px;
+  /* L'altezza segue la casella invece di essere scritta a mano: era fissa a
+     44px, cioe' l'altezza delle caselle della pagina di accesso, e negli altri
+     posti dove ricompare questo campo (impostazioni, configurazione guidata)
+     le caselle sono da 34px - il pulsante sbordava di dieci pixel e l'icona
+     restava cinque pixel sotto il centro. Con top e bottom insieme il
+     riquadro coincide sempre con la casella, qualunque altezza abbia. */
+  position: absolute; top: 0; bottom: 0; right: 0; width: 40px;
   display: grid; place-items: center; border: 0; background: none;
   color: var(--tx4); cursor: pointer; border-radius: 0 9px 9px 0;
 }
@@ -1171,3 +1189,16 @@ input[type=range]::-moz-range-thumb { width: 17px; height: 17px; border: 0; bord
   .cred-gruppo h3 { grid-column: 1 / -1; }
 }
 .cred-foot { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding-top: 4px; }
+
+/* ----------------------------------------------------------- zona a rischio */
+
+/* Rosso sul bordo e sul titolo, non sul fondo: una sezione con lo sfondo
+   acceso urla anche quando non sta succedendo niente, e a forza di urlare non
+   la si legge piu'. Il colore serve nel momento in cui si va a premere. */
+.pericolo .rows { border-color: var(--bd5); }
+.pericolo .group-title { color: var(--bad-ink2); }
+.pericolo .group-title::before {
+  content: ""; display: inline-block; width: 7px; height: 7px; margin-right: 8px;
+  border-radius: 50%; background: var(--bad); vertical-align: middle;
+}
+.pericolo .row + .row { border-top: 1px solid var(--bd3); }

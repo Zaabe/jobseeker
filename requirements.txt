@@ -8,6 +8,11 @@ python-multipart>=0.0.9
 rapidfuzz>=3.9
 jinja2>=3.1
 
+# Lettura dell'HTML, per la fonte LinkedIn: e' l'unica che non ha un'API da
+# interrogare. Se manca, le altre dodici fonti funzionano lo stesso e LinkedIn
+# dice che la libreria non c'e'.
+beautifulsoup4>=4.12
+
 # Google Gemini: e' il fornitore predefinito del livello semantico e la sua
 # chiave e' gratuita, quindi la libreria si installa sempre. Era commentata, e
 # il risultato era che l'immagine Docker la installava per conto suo mentre chi

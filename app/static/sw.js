@@ -10,7 +10,7 @@
    continuerebbero a servire dalla cache il vecchio style.css e il vecchio
    app.js, e la nuova interfaccia non comparirebbe. */
 
-const CACHE = "jobseeker-v3";
+const CACHE = "jobseeker-v4";
 const SHELL = [
   "/",
   "/static/style.css",

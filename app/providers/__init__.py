@@ -27,6 +27,7 @@ from .ats import (
     WorkdayProvider,
 )
 from .base import BaseProvider, JobPosting, ProviderError, SearchSpec
+from .linkedin import LinkedInProvider
 
 # L'ordine conta per il riconoscimento degli URL: i piu' specifici per primi.
 PROVIDERS: list[type[BaseProvider]] = [
@@ -36,6 +37,7 @@ PROVIDERS: list[type[BaseProvider]] = [
     WorkdayProvider,
     WorkableProvider,
     RecruiteeProvider,
+    LinkedInProvider,
     AdzunaProvider,
     TheMuseProvider,
     ArbeitnowProvider,

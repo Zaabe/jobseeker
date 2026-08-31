@@ -54,8 +54,11 @@ Poi premi **Controlla ora**. Da lì in avanti il controllo è automatico.
 
 ## Le fonti
 
-Il programma usa **solo API pubbliche e documentate**: niente scraping, quindi niente
-selettori che si rompono, niente blocchi dell'indirizzo IP e dati completi e puliti.
+Dodici fonti su tredici usano **API pubbliche e documentate**: niente selettori che si
+rompono, niente blocchi dell'indirizzo IP, dati completi e puliti. L'unica eccezione è
+**LinkedIn**, che un'API aperta non ce l'ha: quella fonte legge le pagine pubbliche, va
+tenuta a ritmo basso e ogni tanto smetterà di funzionare. Le
+[avvertenze stanno qui sotto](#linkedin-lunica-fonte-senza-api).
 
 ### Aggiungere un'azienda incollando il suo link
 
@@ -116,6 +119,7 @@ con il numero di offerte di ciascuno.
 | Fonte | Chiave | Note |
 |---|---|---|
 | **Adzuna** | gratuita, richiesta | La migliore copertura italiana generalista. **Consigliata.** |
+| LinkedIn | no | Pagine pubbliche, non un'API: [leggi le avvertenze](#linkedin-lunica-fonte-senza-api) |
 | The Muse | no | Molte multinazionali, filtro geografico impreciso |
 | Arbeitnow | no | Europa, molto remoto e Germania |
 | Remotive, RemoteOK, Jobicy | no | Solo posizioni da remoto, in prevalenza tecnologiche |
@@ -124,13 +128,35 @@ con il numero di offerte di ciascuno.
 copia `Application ID` e `Application Key` nel file `.env`, riavvia, poi aggiungi la fonte
 Adzuna dall'elenco in **Fonti**.
 
-### Perché non LinkedIn, Indeed o AlmaLaurea
+### LinkedIn: l'unica fonte senza API
+
+LinkedIn apre le API solo ai partner commerciali, quindi questa fonte **legge le pagine
+pubbliche**, le stesse che il sito mostra a chi non ha un account. Funziona, ma è diversa
+dalle altre e conviene saperlo prima di aggiungerla:
+
+- **le condizioni d'uso di LinkedIn non ammettono la raccolta automatica dei contenuti.**
+  La fonte non usa il tuo account, non chiede credenziali e si disattiva come tutte le
+  altre, ma la scelta di tenerla accesa è tua;
+- **si romperà, ogni tanto.** L'HTML cambia senza preavviso: quando succede la fonte
+  smette di restituire offerte e va sistemata. Le altre dodici continuano a funzionare;
+- **LinkedIn conta le richieste** e a un certo punto risponde `999` o mostra il muro del
+  login. Per questo il ritmo è basso di proposito: una pagina (~25 offerte) per parola
+  chiave, mezz'ora di intervallo minimo, qualche secondo fra una richiesta e l'altra, e le
+  descrizioni scaricate solo per le offerte che superano il filtro di pertinenza. Se la
+  fonte viene rifiutata, l'attesa raddoppia da sola a ogni tentativo fallito, come per
+  tutte le altre.
+
+Si aggiunge come le altre: incolla l'indirizzo di una ricerca LinkedIn
+(`https://www.linkedin.com/jobs/search/?keywords=laboratorio&location=Italia`) — parole
+chiave, località e filtro data vengono letti dall'indirizzo — oppure scegli **LinkedIn**
+dall'elenco e lascia i campi vuoti per usare le parole chiave delle ricerche salvate.
+
+### Perché non Indeed o AlmaLaurea
 
 Non espongono un'API pubblica utilizzabile: Indeed ha chiuso sia l'API sia i feed RSS,
-LinkedIn consente l'accesso solo a partner commerciali, AlmaLaurea non ne ha una.
-L'unica strada sarebbe lo scraping, che viola le loro condizioni d'uso e si rompe di
-continuo. Buona parte delle stesse offerte ricompare comunque attraverso Adzuna, che le
-indicizza legalmente.
+AlmaLaurea non ne ha una, e le loro pagine sono protette da controlli anti-automazione ben
+più aggressivi di quelli di LinkedIn. Buona parte delle stesse offerte ricompare comunque
+attraverso Adzuna, che le indicizza legalmente.
 
 ---
 

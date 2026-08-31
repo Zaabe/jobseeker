@@ -9,8 +9,8 @@ Come ottenerli:
    Alla fine BotFather restituisce un token del tipo `123456789:AA...`.
 2. Aprire una conversazione con il bot appena creato e scrivergli qualcosa
    (un bot non puo' iniziare una conversazione da solo).
-3. Il numero della chat si ricava da solo con `resolve_chat_id()`, che
-   l'interfaccia richiama dal pulsante "Trova la chat".
+3. Il numero della chat non serve cercarlo: il pulsante "Trova la chat" nelle
+   impostazioni lo ricava dai messaggi ricevuti dal bot e lo salva da solo.
 """
 from __future__ import annotations
 
@@ -66,30 +66,30 @@ def _call(method: str, token: str, **payload: Any) -> dict[str, Any]:
     return data
 
 
-def resolve_chat_id() -> tuple[bool, str]:
-    """Ricava il numero della chat dagli ultimi messaggi ricevuti dal bot.
+def resolve_chat_id() -> tuple[str, str]:
+    """Ricava numero e nome della chat dagli ultimi messaggi ricevuti dal bot.
 
-    Evita all'utente di doverlo cercare a mano: basta che abbia scritto una
-    volta al proprio bot.
+    Restituisce `(id, nome)`, oppure `("", motivo)` quando non ce la fa. Basta
+    che l'utente abbia scritto una volta al proprio bot: un bot non puo'
+    iniziare una conversazione da solo, quindi il primo messaggio deve arrivare
+    da lui.
     """
     token = config()["token"]
     if not token:
-        return False, "TELEGRAM_TOKEN non impostato nel file .env"
+        return "", ("token del bot non impostato: scrivilo in Impostazioni, sotto "
+                    "«Credenziali dei servizi»")
     try:
         data = _call("getUpdates", token, limit=20)
     except TelegramError as exc:
-        return False, str(exc)
+        return "", str(exc)
 
     for update in reversed(data.get("result", [])):
         message = update.get("message") or update.get("channel_post") or {}
         chat = message.get("chat") or {}
         if chat.get("id"):
             nome = chat.get("first_name") or chat.get("title") or chat.get("username") or "chat"
-            return True, (
-                f"{chat['id']}|Trovata la conversazione con {nome}. "
-                f"Scrivi {chat['id']} in TELEGRAM_CHAT_ID nel file .env e riavvia."
-            )
-    return False, (
+            return str(chat["id"]), nome
+    return "", (
         "nessun messaggio ricevuto dal bot: aprilo su Telegram, scrivigli qualcosa "
         "(anche solo «ciao») e riprova"
     )

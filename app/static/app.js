@@ -26,6 +26,7 @@ const T = {
     allSources: "Tutte le fonti", minMatch: "Match minimo",
     sortScore: "Compatibilità", sortDate: "Data", sortCompany: "Azienda",
     newBadge: "NEW", results: "risultati", result: "risultato", loadMore: "Carica altre offerte",
+    noMoreJobs: "Non ci sono altre offerte al momento",
     emptyJobsTitle: "Nessuna offerta con questi filtri",
     emptyJobsBody: "Abbassa la soglia di compatibilità, allarga la città, oppure premi «Controlla ora» per interrogare subito le fonti.",
     emptyJobsFirst: "Comincia aggiungendo una fonte dalla scheda «Fonti» e una ricerca dalla scheda «Ricerche».",
@@ -164,6 +165,20 @@ const T = {
     pwCurrent: "Password attuale", pwUser: "Nome utente", pwNew: "Nuova password",
     pwSave: "Aggiorna", pwChanged: "Credenziali aggiornate", pwShow: "Mostra", pwHide: "Nascondi",
     pwTooShort: "La password deve avere almeno 8 caratteri.",
+    dangerTitle: "Zona a rischio",
+    dangerNote: "Due operazioni senza ritorno. Non c'è un annulla e non c'è una copia di sicurezza: quello che sparisce è sparito.",
+    wipeTitle: "Svuota l'archivio",
+    wipeHelp: "Cancella offerte, punteggi, curriculum, candidature, ricerche e fonti. Restano nome utente, password, chiavi API e recapiti per le notifiche.",
+    wipeButton: "Svuota l'archivio",
+    wipeAsk: "Svuotare l'archivio?",
+    wipeAskBody: "Spariscono offerte, punteggi, curriculum, candidature, ricerche e fonti. Restano nome utente, password, chiavi API e i recapiti per email e Telegram. Le fonti andranno riaggiunte a mano.",
+    wipeDone: "Archivio svuotato",
+    resetTitle: "Cancella tutto e ricomincia",
+    resetHelp: "Come un'installazione appena fatta: spariscono anche nome utente, password, chiavi API e recapiti. Riparte dalla configurazione iniziale.",
+    resetButton: "Cancella tutto",
+    resetAsk: "Cancellare tutto?",
+    resetAskBody: "Sparisce ogni cosa, comprese le credenziali di accesso e le chiavi dei servizi. Verrai disconnesso e l'applicazione ripartirà dalla configurazione iniziale, come appena installata.",
+    resetWord: "Per confermare scrivi",
     dSource: "Fonte", dKind: "Tipo", dJobs: "Offerte", dState: "Stato", dFails: "Errori di fila",
     dWhen: "Quando", dOutcome: "Esito", dFound: "Trovate", dNew: "Nuove", dError: "Errore",
     neverRun: "mai eseguita", ok: "ok", error: "errore",
@@ -221,6 +236,7 @@ const T = {
     allSources: "All sources", minMatch: "Min. match",
     sortScore: "Match", sortDate: "Date", sortCompany: "Company",
     newBadge: "NEW", results: "results", result: "result", loadMore: "Load more postings",
+    noMoreJobs: "No more postings right now",
     emptyJobsTitle: "No postings match these filters",
     emptyJobsBody: "Lower the match threshold, widen the city, or hit “Check now” to query the sources right away.",
     emptyJobsFirst: "Start by adding a source under “Sources” and a search under “Searches”.",
@@ -359,6 +375,20 @@ const T = {
     pwCurrent: "Current password", pwUser: "Username", pwNew: "New password",
     pwSave: "Update", pwChanged: "Credentials updated", pwShow: "Show", pwHide: "Hide",
     pwTooShort: "The password must be at least 8 characters long.",
+    dangerTitle: "Danger zone",
+    dangerNote: "Two operations with no way back. There is no undo and there is no backup: what goes is gone.",
+    wipeTitle: "Wipe the archive",
+    wipeHelp: "Deletes postings, scores, résumés, applications, searches and sources. Username, password, API keys and notification contacts stay.",
+    wipeButton: "Wipe the archive",
+    wipeAsk: "Wipe the archive?",
+    wipeAskBody: "Postings, scores, résumés, applications, searches and sources all go. Username, password, API keys and the email/Telegram contacts stay. Sources will have to be added again by hand.",
+    wipeDone: "Archive wiped",
+    resetTitle: "Delete everything and start over",
+    resetHelp: "Like a fresh install: username, password, API keys and contacts go too. Starts again from the initial setup.",
+    resetButton: "Delete everything",
+    resetAsk: "Delete everything?",
+    resetAskBody: "Everything goes, including the sign-in credentials and the service keys. You will be signed out and the app will start again from the initial setup, as if newly installed.",
+    resetWord: "To confirm, type",
     dSource: "Source", dKind: "Kind", dJobs: "Postings", dState: "State", dFails: "Failures in a row",
     dWhen: "When", dOutcome: "Outcome", dFound: "Found", dNew: "New", dError: "Error",
     neverRun: "never run", ok: "ok", error: "error",
@@ -934,9 +964,14 @@ function renderJobsView() {
         </div>
       </div>
       <div id="jobs-list" class="stack" style="gap:11px"></div>
-      <div id="jobs-pager" hidden style="display:flex;justify-content:center">
+      <!-- Larghezza e allineamento stanno nel foglio di stile. Qui c'era un
+           display:flex scritto in linea, che vince sull'attributo hidden: il
+           pulsante restava visibile anche quando non c'era piu' niente da
+           caricare. -->
+      <div id="jobs-pager" hidden>
         <button class="btn" type="button" id="jobs-more">${t("loadMore")}</button>
       </div>
+      <p class="jobs-end" id="jobs-end" hidden>${t("noMoreJobs")}</p>
     </div>`;
 
   wireJobFilters();
@@ -991,6 +1026,9 @@ function renderJobs(append = false) {
       loadJobs();
     };
     $("#jobs-pager").hidden = true;
+    // Niente "non ci sono altre offerte" quando non ce n'e' nemmeno una: lo
+    // dice gia', e meglio, la scheda vuota qui sopra.
+    $("#jobs-end").hidden = true;
     $("#jobs-count").textContent = "";
     return;
   }
@@ -998,7 +1036,11 @@ function renderJobs(append = false) {
   const offset = append ? $$("#jobs-list .job").length : 0;
   list.insertAdjacentHTML("beforeend", state.jobs.items.map((j, i) => jobCard(j, i + (append ? 0 : offset))).join(""));
   const shown = $$("#jobs-list .job").length;
-  $("#jobs-pager").hidden = shown >= state.jobs.total;
+  // Il pulsante o la nota, mai i due insieme: chi arriva in fondo all'elenco
+  // deve vedere che l'elenco e' finito, non un pulsante che non fa niente.
+  const ancora = shown < state.jobs.total;
+  $("#jobs-pager").hidden = !ancora;
+  $("#jobs-end").hidden = ancora;
   $("#jobs-count").textContent = `${state.jobs.total} ${state.jobs.total === 1 ? t("result") : t("results")}`;
 }
 
@@ -1264,10 +1306,56 @@ async function loadSources() {
   renderShell();
 }
 
-const CAT_TINTS = [
-  ["var(--ok2)", "var(--ok-ink)"], ["var(--ac5)", "var(--ac-ink)"], ["var(--pp2t)", "var(--pp)"],
-  ["var(--wn2)", "var(--wn-ink)"], ["var(--bd3)", "var(--bad-ink)"], ["var(--fl3)", "var(--tx2)"],
-];
+const CAT_TINTS = {
+  ok: ["var(--ok2)", "var(--ok-ink)"], ac: ["var(--ac5)", "var(--ac-ink)"],
+  pp: ["var(--pp2t)", "var(--pp)"], wn: ["var(--wn2)", "var(--wn-ink)"],
+  bd: ["var(--bd3)", "var(--bad-ink)"], fl: ["var(--fl3)", "var(--tx2)"],
+};
+
+/* Un segno per ogni fonte, nello stesso tratto delle icone della barra
+   laterale. Prima c'era l'iniziale del nome, e con tredici fonti le iniziali
+   si ripetono: due W (Workday, Workable), tre A (Ashby, Adzuna, Arbeitnow),
+   tre R (Recruitee, Remotive, RemoteOK). Un'iniziale ripetuta non distingue
+   niente, ed e' esattamente il posto in cui si cerca la fonte con l'occhio.
+
+   Sono disegni di questa applicazione, non i loghi ufficiali: quelli
+   andrebbero scaricati dai siti dei fornitori ogni volta che si apre la
+   pagina, e qui l'interfaccia non chiede niente a nessuno per mostrarsi.
+   Ciascuno richiama il mestiere della fonte - il germoglio di Greenhouse, il
+   sole di Workday, la "in" di LinkedIn, la lente di Adzuna, l'aereo di carta
+   di Remotive, la casa di Jobicy.
+
+   La tinta e' legata alla fonte, non alla sua posizione nell'elenco: prima
+   girava con l'indice, quindi la stessa fonte cambiava colore appena se ne
+   aggiungeva un'altra prima di lei. */
+const MARCHI = {
+  greenhouse: ["M12 21v-8.4M12 12.6Q6 11.4 6.4 6.8Q11.4 7.6 12 12.6M12 12.6Q18.4 11.6 18 6.4Q12.6 7.6 12 12.6", "ok"],
+  ashby: ["M5.4 19.6 12 4.6l6.6 15M8.6 14.6h6.8", "pp"],
+  smartrecruiters: ["M9.4 11.6a3.2 3.2 0 1 0 0-6.4 3.2 3.2 0 0 0 0 6.4M3.8 19.6c0-3.2 2.5-5.7 5.6-5.7 1 0 2 .3 2.9.8M13.8 17.4l2.2 2.2 4.2-4.8", "ac"],
+  workday: ["M12 5.2V3.2M6.2 8.2 4.8 6.8M17.8 8.2l1.4-1.4M8 13.6a4 4 0 0 1 8 0M3.4 13.6h17.2M6.8 17.6h10.4", "wn"],
+  workable: ["M5 7.6A2.6 2.6 0 0 1 7.6 5h8.8A2.6 2.6 0 0 1 19 7.6v8.8A2.6 2.6 0 0 1 16.4 19H7.6A2.6 2.6 0 0 1 5 16.4zM8.6 12.2l2.5 2.5 4.3-5", "ok"],
+  recruitee: ["M16.4 4.8H7.6A2.6 2.6 0 0 0 5 7.4v6A2.6 2.6 0 0 0 7.6 16h.4v3.2L12.4 16h4A2.6 2.6 0 0 0 19 13.4v-6A2.6 2.6 0 0 0 16.4 4.8ZM9.2 10.3v.1M12 10.3v.1M14.8 10.3v.1", "bd"],
+  linkedin: ["M5 7.6A2.6 2.6 0 0 1 7.6 5h8.8A2.6 2.6 0 0 1 19 7.6v8.8A2.6 2.6 0 0 1 16.4 19H7.6A2.6 2.6 0 0 1 5 16.4zM8.9 11.3v4.3M8.9 8.6v.1M12.7 15.6v-4.3M12.7 12.7c0-1 .7-1.6 1.6-1.6.9 0 1.5.7 1.5 1.7v2.8", "ac"],
+  adzuna: ["M10.2 3.8a6.4 6.4 0 1 0 0 12.8 6.4 6.4 0 0 0 0-12.8M15 15 20.4 20.4M7.4 8.6h5.6M7.4 11.6h3.4", "pp"],
+  themuse: ["M12 4.2a5 5 0 0 0-2.6 9.3v2.2h5.2v-2.2A5 5 0 0 0 12 4.2M10 18.2h4M10.8 20.6h2.4", "wn"],
+  arbeitnow: ["M12 4.8a7.2 7.2 0 1 0 0 14.4 7.2 7.2 0 0 0 0-14.4M12 8.6V12l2.8 1.9", "fl"],
+  remotive: ["M20.8 3.6 3.6 10.8l6.2 2.6 2.6 6.2zM9.8 13.4 20.8 3.6", "bd"],
+  // Schermo senza spunta e in blu: con la spunta dentro un rettangolo era il
+  // gemello di Workable, e a ventisei pixel due gemelli non si distinguono.
+  remoteok: ["M4 7.4A1.8 1.8 0 0 1 5.8 5.6h12.4A1.8 1.8 0 0 1 20 7.4v7.2a1.8 1.8 0 0 1-1.8 1.8H5.8A1.8 1.8 0 0 1 4 14.6zM9.4 19.4h5.2M12 16.4v3", "ac"],
+  jobicy: ["M4.2 11.6 12 5.2l7.8 6.4M6.6 10.6v8.8h10.8v-8.8M9.6 15.4a3.4 3.4 0 0 1 4.8 0M11.4 17.6h1.2", "pp"],
+};
+
+/* Il quadratino di una fonte. Per una fonte aggiunta in futuro senza il suo
+   segno resta l'iniziale, che e' brutta ma non e' un buco. */
+function segnoFonte(kind, label, grande = false) {
+  const marchio = MARCHI[kind];
+  const [tint, fg] = CAT_TINTS[marchio ? marchio[1] : "fl"];
+  const dentro = marchio
+    ? svg(marchio[0], grande ? 19 : 15, 'stroke-width="1.6"')
+    : esc((label || "?")[0].toUpperCase());
+  return `<span class="cat-mark" style="background:${tint};color:${fg}">${dentro}</span>`;
+}
 
 function renderSources() {
   const d = state.detected;
@@ -1292,11 +1380,10 @@ function renderSources() {
       <section>
         <h2 class="section-title">${t("catalogueTitle")}</h2>
         <div class="catalogue">
-          ${state.catalogue.map((c, i) => {
-            const [tint, fg] = CAT_TINTS[i % CAT_TINTS.length];
+          ${state.catalogue.map((c) => {
             return `<button class="cat" type="button" data-add-kind="${esc(c.kind)}">
               <div class="cat-head">
-                <span class="cat-mark" style="background:${tint};color:${fg}">${esc((c.label || "?")[0].toUpperCase())}</span>
+                ${segnoFonte(c.kind, c.label)}
                 <b>${esc(c.label)}</b>
               </div>
               <p>${esc(c.description || "")}</p>
@@ -1438,8 +1525,6 @@ function openProviderModal(kind, existing = null) {
   const fields = info.config_fields || [];
   const cfg = existing ? (existing.config || {}) : {};
   const values = { ...cfg };
-  const idx = state.catalogue.indexOf(info);
-  const [tint, fg] = CAT_TINTS[idx % CAT_TINTS.length];
   let touched = false;
 
   const draw = (result = "") => {
@@ -1448,7 +1533,7 @@ function openProviderModal(kind, existing = null) {
         <div class="backdrop" data-close-modal></div>
         <div class="modal">
           <div class="modal-head">
-            <span class="cat-mark" style="background:${tint};color:${fg}">${esc((info.label || "?")[0].toUpperCase())}</span>
+            ${segnoFonte(kind, info.label, true)}
             <div>
               <h2>${existing ? t("modalUpdate") : t("add")} · ${esc(info.label)}</h2>
               <p>${esc(info.description || "")}</p>
@@ -2132,6 +2217,25 @@ function renderSettings() {
         </div>
       </section>
 
+      <section class="pericolo">
+        <h2 class="group-title">${t("dangerTitle")}</h2>
+        <p class="group-note">${t("dangerNote")}</p>
+        <div class="rows">
+          <div class="row">
+            <div class="row-label"><b>${t("wipeTitle")}</b><span>${t("wipeHelp")}</span></div>
+            <div class="row-control">
+              <button class="btn danger" type="button" id="danger-wipe">${t("wipeButton")}</button>
+            </div>
+          </div>
+          <div class="row">
+            <div class="row-label"><b>${t("resetTitle")}</b><span>${t("resetHelp")}</span></div>
+            <div class="row-control">
+              <button class="btn danger" type="button" id="danger-reset">${t("resetButton")}</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
       ${m.auth ? `
       <section>
         <h2 class="group-title">${t("accessTitle")}</h2>
@@ -2316,6 +2420,36 @@ function wireSettings() {
     e.target.disabled = false;
   };
 
+  const svuota = $("#danger-wipe");
+  if (svuota) svuota.onclick = async () => {
+    if (!await chiediConferma({ titolo: t("wipeAsk"), testo: t("wipeAskBody"),
+                                conferma: t("wipeButton") })) return;
+    svuota.disabled = true;
+    try {
+      await api("/api/danger/wipe", { method: "POST" });
+      toast(t("wipeDone"));
+      // L'archivio sotto i piedi e' cambiato: mostrare i conteggi di prima
+      // sarebbe peggio di un momento di attesa.
+      await Promise.all([loadStatus(), loadSettings()]);
+    } catch (e) { toast(e.message, "bad"); }
+    svuota.disabled = false;
+  };
+
+  const azzera = $("#danger-reset");
+  if (azzera) azzera.onclick = async () => {
+    if (!await chiediConferma({ titolo: t("resetAsk"), testo: t("resetAskBody"),
+                                conferma: t("resetButton"), parola: t("resetButton") })) return;
+    azzera.disabled = true;
+    try {
+      await api("/api/danger/reset", { method: "POST" });
+      // Da qui non c'e' piu' niente da mostrare: si va alla configurazione.
+      location.href = "/setup";
+    } catch (e) {
+      toast(e.message, "bad");
+      azzera.disabled = false;
+    }
+  };
+
   const provaLlm = $("#llm-test");
   if (provaLlm) provaLlm.onclick = async () => {
     const esito = $("#llm-test-esito");
@@ -2395,6 +2529,15 @@ function wireSettings() {
       const r = await api("/api/notifications/telegram-chat", { method: "POST" });
       box.innerHTML = `<div class="notice ${r.ok ? "ok" : "warn"}" style="margin-top:8px">
         ${r.ok ? `<b>${t("chatFound")}: <code>${esc(r.chat_id)}</code></b>` : ""}${esc(r.message)}</div>`;
+      if (r.ok) {
+        // Lo stato si rilegge dal server ma la pagina non si ridisegna: un
+        // ridisegno richiuderebbe questa guida e cancellerebbe il messaggio
+        // appena comparso. Il campo fra le credenziali lo si aggiorna a mano,
+        // che e' l'unica cosa che si vede cambiare.
+        await loadSettings(false);
+        const campo = $("#cred-telegram_chat_id");
+        if (campo) campo.value = r.chat_id;
+      }
     } catch (e) { box.innerHTML = `<div class="notice bad" style="margin-top:8px">${esc(e.message)}</div>`; }
   };
   const tgTest = $("#btn-tg-test");
@@ -2471,7 +2614,7 @@ function componentRows(breakdown) {
    Fondale, Esc e il pulsante di annullamento passano tutti da `closeOverlay`,
    che scioglie la promessa con `false` - cosi' nessuna via d'uscita lascia
    l'attesa appesa. */
-function chiediConferma({ titolo, testo = "", conferma, pericolo = true }) {
+function chiediConferma({ titolo, testo = "", conferma, pericolo = true, parola = "" }) {
   return new Promise((risolvi) => {
     // Una conferma gia' aperta decade: vale come annullata.
     if (state.conferma) { const p = state.conferma; state.conferma = null; p(false); }
@@ -2489,9 +2632,14 @@ function chiediConferma({ titolo, testo = "", conferma, pericolo = true }) {
               ${testo ? `<p>${esc(testo)}</p>` : ""}
             </div>
           </div>
+          ${parola ? `<div class="modal-body">
+            <label class="field"><span>${t("resetWord")} «${esc(parola)}»</span>
+              <input class="input" id="conferma-parola" autocomplete="off" spellcheck="false"></label>
+          </div>` : ""}
           <div class="modal-foot">
             <button class="btn" type="button" data-close-modal>${t("modalCancel")}</button>
-            <button class="btn ${pericolo ? "danger" : "primary"}" type="button" id="conferma-si">${esc(conferma)}</button>
+            <button class="btn ${pericolo ? "danger" : "primary"}" type="button" id="conferma-si"
+              ${parola ? "disabled" : ""}>${esc(conferma)}</button>
           </div>
         </div>
       </div>`;
@@ -2501,9 +2649,20 @@ function chiediConferma({ titolo, testo = "", conferma, pericolo = true }) {
       closeOverlay();
       risolvi(true);
     };
-    // Il cursore va sull'uscita di sicurezza: un Invio distratto non deve
-    // cancellare niente.
-    $("[data-close-modal].btn")?.focus();
+
+    const campo = $("#conferma-parola");
+    if (campo) {
+      /* Con una parola da scrivere il pulsante resta spento finche' non
+         corrisponde: e' l'unica differenza fra un clic per sbaglio e una
+         decisione presa. Qui il cursore va nel campo, perche' senza scrivere
+         non si va avanti comunque. */
+      campo.oninput = () => { $("#conferma-si").disabled = campo.value.trim() !== parola; };
+      campo.focus();
+    } else {
+      // Il cursore va sull'uscita di sicurezza: un Invio distratto non deve
+      // cancellare niente.
+      $("[data-close-modal].btn")?.focus();
+    }
   });
 }
 
