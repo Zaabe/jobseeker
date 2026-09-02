@@ -223,6 +223,13 @@ const T = {
     urlFirst: "Incolla un indirizzo", back: "Collegamento al server ripristinato",
     bootFailed: "Avvio non riuscito", providersRun: "fonti interrogate", newJobs: "offerte nuove",
     byEmail: "per email", onTelegram: "su Telegram",
+    wipeJobs: "Cancella le offerte",
+    wipeJobsAsk: "Cancellare le offerte raccolte?",
+    wipeJobsBody: "Spariscono tutte le offerte in archivio tranne quelle a cui hai dato uno stato \u2014 salvate, candidato, colloquio, offerta, rifiutate, scartate: quelle restano, insieme a quello che il motore ha imparato da loro. Le fonti ritroveranno le altre al prossimo controllo, se sono ancora pubblicate.",
+    wipeJobsDone: "offerte cancellate", wipeJobsDone1: "offerta cancellata",
+    wipeJobsCount: "offerte spariranno", wipeJobsCount1: "offerta sparir\u00e0",
+    wipeJobsKept1: "tenuta perch\u00e9 ha uno stato",
+    wipeJobsKept: "tenute perch\u00e9 hanno uno stato",
     llmClearQueue: "Svuota la coda",
     llmClearAsk: "Svuotare la coda del modello?",
     llmClearBody: "Le offerte in attesa restano dove sono, con il loro punteggio lessicale: il modello non le leggerà. Un ricalcolo dei punteggi le rimette in coda.",
@@ -447,6 +454,13 @@ const T = {
     urlFirst: "Paste a URL", back: "Connection to the server restored",
     bootFailed: "Startup failed", providersRun: "sources queried", newJobs: "new postings",
     byEmail: "by email", onTelegram: "on Telegram",
+    wipeJobs: "Delete the postings",
+    wipeJobsAsk: "Delete the collected postings?",
+    wipeJobsBody: "Every posting in the archive goes, except the ones you gave a status \u2014 saved, applied, interview, offer, rejected, discarded: those stay, along with what the engine learned from them. The sources will find the others again on the next check, if they are still published.",
+    wipeJobsDone: "postings deleted", wipeJobsDone1: "posting deleted",
+    wipeJobsCount: "postings will go", wipeJobsCount1: "posting will go",
+    wipeJobsKept1: "kept because it has a status",
+    wipeJobsKept: "kept because they have a status",
     llmClearQueue: "Empty the queue",
     llmClearAsk: "Empty the model's queue?",
     llmClearBody: "The waiting postings stay where they are with their lexical score: the model just will not read them. Rescoring puts them back in the queue.",
@@ -1137,6 +1151,9 @@ function renderJobsView() {
               `<button type="button" data-sort="${k}" class="${f.sort === k ? "on" : ""}">${t(l)}</button>`).join("")}
           </div>
           <span class="count-note" id="jobs-count"></span>
+          <!-- Accanto al numero di risultati, perche' e' quello che si guarda
+               quando l'elenco e' diventato ingestibile. -->
+          <button class="btn small danger" type="button" id="jobs-wipe" hidden>${t("wipeJobs")}</button>
         </div>
       </div>
       <div id="jobs-list" class="stack" style="gap:11px"></div>
@@ -1206,6 +1223,12 @@ function renderJobs(append = false) {
     // dice gia', e meglio, la scheda vuota qui sopra.
     $("#jobs-end").hidden = true;
     $("#jobs-count").textContent = "";
+    // Il pulsante che cancella guarda l'archivio, non i filtri: resta se c'e'
+    // qualcosa da cancellare anche quando questi filtri non mostrano niente, e
+    // sparisce quando tutto quello che resta ha uno stato ed e' quindi al
+    // riparo - un pulsante rosso che non fa niente e' solo un tranello.
+    const vuoto = $("#jobs-wipe");
+    if (vuoto) vuoto.hidden = !(state.status?.deletable_jobs > 0);
     return;
   }
 
@@ -1218,6 +1241,8 @@ function renderJobs(append = false) {
   $("#jobs-pager").hidden = !ancora;
   $("#jobs-end").hidden = ancora;
   $("#jobs-count").textContent = `${state.jobs.total} ${state.jobs.total === 1 ? t("result") : t("results")}`;
+  const vuota = $("#jobs-wipe");
+  if (vuota) vuota.hidden = !(state.status?.deletable_jobs > 0);
 }
 
 function wireJobFilters() {
@@ -1243,6 +1268,35 @@ function wireJobFilters() {
     loadJobs();
   };
   $("#jobs-more").onclick = () => { state.jobs.offset += state.jobs.limit; loadJobs(true); };
+
+  /* Quante ne spariscono e quante restano: sono i due numeri che fanno
+     decidere, quindi si chiedono al server un attimo prima di mostrarli invece
+     di fidarsi di quello che la pagina aveva in mano da prima. */
+  const quantita = (n, chiave) => `${n} ${t(n === 1 ? chiave + "1" : chiave)}`;
+  const vuota = $("#jobs-wipe");
+  if (vuota) vuota.onclick = async () => {
+    vuota.disabled = true;
+    try { await loadStatus(); } catch (e) { /* si prosegue con quello che c'e' */ }
+    const quante = state.status?.deletable_jobs || 0;
+    const conStato = state.status?.counts?.applications || 0;
+    const va = await chiediConferma({
+      titolo: t("wipeJobsAsk"),
+      testo: quantita(quante, "wipeJobsCount")
+        + (conStato ? `, ${quantita(conStato, "wipeJobsKept")}` : "")
+        + `. ${t("wipeJobsBody")}`,
+      conferma: t("wipeJobs"),
+    });
+    if (!va) { vuota.disabled = false; return; }
+    try {
+      const r = await api("/api/jobs", { method: "DELETE" });
+      toast(`${quantita(r.deleted, "wipeJobsDone")}, ${quantita(r.kept, "wipeJobsKept")}`);
+      // In fila, non insieme: l'elenco si ridisegna leggendo lo stato, e con le
+      // due chiamate in parallelo poteva disegnarsi con i conti di prima.
+      await loadStatus();
+      await loadJobs();
+    } catch (e) { toast(e.message, "bad"); }
+    vuota.disabled = false;
+  };
   loadCities();
 }
 

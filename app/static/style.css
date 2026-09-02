@@ -328,6 +328,13 @@ option { background: var(--sf); color: var(--tx); }
 
 /* -------------------------------------------------------------- comandi */
 
+/* `display: inline-flex` qui sotto batte l'attributo `hidden`, che il foglio
+   del browser applica con una regola piu' debole: senza la riga che segue, un
+   pulsante marcato nascosto resta visibile. E' un inganno in cui questo file e'
+   gia' caduto due volte - il paginatore delle offerte e i passi della
+   configurazione guidata - quindi la regola sta qui, valida per tutti. */
+.btn[hidden], .icon-btn[hidden] { display: none; }
+
 .btn {
   display: inline-flex; align-items: center; gap: 7px; height: 32px; padding: 0 15px;
   border: 1px solid var(--bd); background: var(--sf); border-radius: 9px;

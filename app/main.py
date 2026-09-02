@@ -195,6 +195,12 @@ def get_status() -> dict[str, Any]:
         "WHERE j.is_archived = 0 AND COALESCE(j.posted_at, j.first_seen_at) >= ?",
         (threshold, cv_id, giorno),
     )
+    # Quante offerte sparirebbero premendo "Cancella le offerte": quelle senza
+    # uno stato. Serve a scrivere il numero esatto nella conferma - un avviso
+    # che dice "spariscono le offerte" senza dire quante non aiuta a decidere -
+    # e a nascondere il pulsante quando non c'e' niente da cancellare.
+    cancellabili = db.query_one(
+        "SELECT COUNT(*) AS n FROM job WHERE id NOT IN (SELECT job_id FROM application)")
     # Anche la media e' dell'archivio, per lo stesso motivo: calcolata sulle
     # prime duecento per punteggio veniva sempre piu' alta del vero.
     media = db.query_one(
@@ -235,6 +241,7 @@ def get_status() -> dict[str, Any]:
         "fresh_above_threshold": fresche["sopra"] or 0,
         "avg_score": round(media["media"]) if media["media"] is not None else None,
         "pending_notifications": in_attesa["n"],
+        "deletable_jobs": cancellabili["n"],
         "search_thresholds": [dict(r) for r in proprie],
         "unseen_notifications": unseen["n"],
         # Se c'e' un controllo in corso lo dice anche qui, dove passa qualunque
@@ -605,6 +612,30 @@ async def preview_provider(payload: ProviderIn) -> dict[str, Any]:
 # --------------------------------------------------------------------------
 # Offerte
 # --------------------------------------------------------------------------
+
+@app.delete("/api/jobs")
+def svuota_offerte() -> dict[str, int]:
+    """Cancella le offerte raccolte, tranne quelle a cui e' stato dato uno stato.
+
+    "Uno stato" vuol dire qualunque riga nello storico: salvata, candidato,
+    colloquio, offerta ricevuta, rifiutata, scartata. Anche "scartata" e' una
+    decisione, e cancellarla farebbe due danni: l'offerta ricomparirebbe al giro
+    dopo come se fosse nuova, e il motore dimenticherebbe perche' era stata
+    scartata - e' su quelle righe che si regge quello che ha imparato.
+
+    Le tabelle collegate (punteggi, avvisi) hanno ON DELETE CASCADE, quindi
+    seguono da sole.
+    """
+    tenute = db.query_one("SELECT COUNT(*) AS n FROM application")["n"]
+    cursore = db.execute("DELETE FROM job WHERE id NOT IN (SELECT job_id FROM application)")
+    quante = cursore.rowcount
+    # L'archivio e' cambiato di dimensione: l'indice IDF costruito su quello di
+    # prima non e' piu' rappresentativo.
+    pipeline.invalidate()
+    log.info("elenco offerte svuotato: %d cancellate, %d tenute perche' con uno stato",
+             quante, tenute)
+    return {"deleted": quante, "kept": tenute}
+
 
 @app.get("/api/jobs")
 def list_jobs(

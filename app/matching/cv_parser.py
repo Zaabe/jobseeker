@@ -144,7 +144,11 @@ _MONTH_ALT = "|".join(sorted(_MONTHS, key=len, reverse=True))
 _SEP = r"\s*(?:-|--|to|a|al|until|fino a|–|—)\s*"
 
 _RANGE_RE = re.compile(
-    rf"(?:(?P<m1>{_MONTH_ALT})\s+)?(?P<y1>(?:19|20)\d{{2}})"
+    # Il guardiano davanti all'anno serve a non leggere "2024" dentro
+    # "03/2024": senza, la stessa riga produceva due intervalli - uno da
+    # marzo e uno da gennaio - e la fusione teneva il piu' largo,
+    # regalando i mesi che stanno prima del mese scritto.
+    rf"(?:(?P<m1>{_MONTH_ALT})\s+)?(?<![\d/.])(?P<y1>(?:19|20)\d{{2}})"
     rf"{_SEP}"
     rf"(?:(?:(?P<m2>{_MONTH_ALT})\s+)?(?P<y2>(?:19|20)\d{{2}})|(?P<now>{'|'.join(_PRESENT)}))",
     re.IGNORECASE,
@@ -156,10 +160,15 @@ _NUMERIC_RANGE_RE = re.compile(
     re.IGNORECASE,
 )
 
-# Letto dall'orologio, non scritto a mano: un anno fisso qui dentro fa
+# Letto dall'orologio, non scritto a mano: una data fissa qui dentro fa
 # sbagliare tutti gli intervalli aperti ("2019 - oggi") dal primo gennaio
 # successivo, e nessuno se ne accorge finche' i conti non tornano piu'.
-_CURRENT_YEAR = date.today().year
+#
+# Si chiede a ogni conteggio e non una volta sola all'importazione: un
+# contenitore resta accesso per mesi, e un valore congelato all'avvio sbaglia
+# appena passa la mezzanotte di Capodanno.
+def _oggi() -> date:
+    return date.today()
 
 
 def _merge_intervals(intervals: list[tuple[int, int]]) -> int:
@@ -301,6 +310,7 @@ def estimate_years(text: str) -> float:
     # accettando una stima piu' grossolana.
     normalized = "\n".join(work) if work else normalize(text)
     intervals: list[tuple[int, int]] = []
+    oggi = _oggi()
 
     for regex, numeric in ((_RANGE_RE, False), (_NUMERIC_RANGE_RE, True)):
         for match in regex.finditer(normalized):
@@ -310,11 +320,15 @@ def estimate_years(text: str) -> float:
             else:
                 month1 = _MONTHS.get((match.group("m1") or "").lower(), 1)
             if match.group("now"):
-                year2, month2 = _CURRENT_YEAR, 12
+                # Un lavoro in corso finisce adesso, non alla fine dell'anno.
+                # Chiuderlo a dicembre regalava i mesi non ancora vissuti: a
+                # settembre "2019 - oggi" contava tre mesi di troppo, e
+                # "gennaio 2026 - oggi" ne contava dodici invece di nove.
+                year2, month2 = oggi.year, oggi.month
             else:
                 year2 = int(match.group("y2"))
                 month2 = int(match.group("m2") or 12) if numeric else _MONTHS.get((match.group("m2") or "").lower(), 12)
-            if not (1950 <= year1 <= _CURRENT_YEAR and year1 <= year2 <= _CURRENT_YEAR + 1):
+            if not (1950 <= year1 <= oggi.year and year1 <= year2 <= oggi.year + 1):
                 continue
             start = year1 * 12 + max(1, min(12, month1))
             end = year2 * 12 + max(1, min(12, month2))
