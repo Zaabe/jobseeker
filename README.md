@@ -205,7 +205,10 @@ non diceva. Il colore indica come vengono usate:
 Non serve azzeccare la forma esatta: si scrive come viene e il nome canonico lo trova
 l'applicazione. *"real time pcr"* diventa **qPCR / Real-time PCR**, *"western blotting"*
 diventa **Western blot**, *"spettrometria di massa"* in minuscolo diventa **Spettrometria
-di massa**. Dopo *Salva e ricalcola* tutti i punteggi vengono rifatti.
+di massa**. Dopo *Salva e ricalcola* tutti i punteggi vengono rifatti — ma **i giudizi già
+scritti dal modello restano**: costano una chiamata a pagamento ciascuno e riguardano
+l'offerta rispetto al profilo, non il conteggio lessicale che qui si rifà. Il punteggio
+finale viene rimescolato con la nuova parte lessicale.
 
 ### Un profilo senza curriculum
 

@@ -344,6 +344,24 @@ class Pipeline:
             "location": db.get_setting_float("weight_location", 5),
         }
 
+        # I giudizi del modello sopravvivono al ricalcolo. Costano una chiamata a
+        # pagamento ciascuno, e riguardano l'offerta rispetto al profilo: il
+        # punteggio lessicale si rifa' da zero, quel giudizio no. Prima veniva
+        # buttato via insieme al resto del dettaglio, e "Ricalcola i punteggi"
+        # cancellava senza dirlo centinaia di letture gia' pagate.
+        #
+        # Si leggono con `json_extract`, cosi' tornano solo le poche righe che
+        # ne hanno una invece dell'intero archivio da interpretare.
+        giudizi: dict[int, dict[str, Any]] = {}
+        for riga in db.query(
+                "SELECT job_id, json_extract(breakdown_json, '$.llm') AS giudizio "
+                "FROM match WHERE cv_id = ? AND json_valid(breakdown_json) "
+                "  AND json_extract(breakdown_json, '$.llm') IS NOT NULL", (cv_id,)):
+            try:
+                giudizi[riga["job_id"]] = json.loads(riga["giudizio"])
+            except (ValueError, TypeError):
+                continue
+
         scored: list[dict[str, Any]] = []
         da_scrivere: list[tuple[Any, ...]] = []
         for row in rows:
@@ -368,11 +386,23 @@ class Pipeline:
             if best is None:
                 continue
             breakdown = best.to_dict()
+            punteggio = best.score
+            giudizio = giudizi.get(row["id"])
+            if giudizio:
+                # Il giudizio torna nel dettaglio, e il punteggio finale si
+                # rimescola: la parte lessicale e' cambiata, quella del modello
+                # no. `lexical_score` si aggiorna, altrimenti la scheda
+                # dell'offerta mostrerebbe la base di prima.
+                giudizio = dict(giudizio, lexical_score=round(best.score, 1))
+                breakdown["llm"] = giudizio
+                punteggio = llm.mescola(best.score, giudizio.get("score"),
+                                        giudizio.get("weight",
+                                                     db.get_setting_float("llm_weight", 50)))
             da_scrivere.append((
-                row["id"], cv_id, best_spec.id if best_spec else None, best.score,
+                row["id"], cv_id, best_spec.id if best_spec else None, punteggio,
                 json.dumps(breakdown, ensure_ascii=False), db.utcnow(),
             ))
-            scored.append({"job": db.row_to_dict(row), "score": best.score,
+            scored.append({"job": db.row_to_dict(row), "score": punteggio,
                            "breakdown": breakdown,
                            # Quale ricerca ha prodotto il punteggio: serve alle
                            # notifiche, perche' ogni ricerca puo' avere la sua

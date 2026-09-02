@@ -498,6 +498,19 @@ def prova(provider: str = DEFAULT_PROVIDER, model: str = "") -> tuple[bool, str]
     return True, f"{provider_info(provider)['label']} ha risposto con {nome_modello}"
 
 
+def mescola(lexical_score: float, llm_score: float | None, llm_weight: float) -> float:
+    """Combina un punteggio lessicale e uno del modello, dati i due numeri.
+
+    Sta separata da `blend` perche' la usa anche il ricalcolo dei punteggi, che
+    ha in mano un giudizio gia' salvato - un dizionario letto dal database - e
+    non l'oggetto restituito dal modello.
+    """
+    if llm_score is None:
+        return lexical_score
+    weight = max(0.0, min(100.0, llm_weight)) / 100.0
+    return lexical_score * (1 - weight) + float(llm_score) * weight
+
+
 def blend(lexical_score: float, verdict: LlmVerdict | None, llm_weight: float) -> float:
     """Combina punteggio lessicale e giudizio del modello.
 
@@ -505,5 +518,4 @@ def blend(lexical_score: float, verdict: LlmVerdict | None, llm_weight: float) -
     """
     if verdict is None:
         return lexical_score
-    weight = max(0.0, min(100.0, llm_weight)) / 100.0
-    return lexical_score * (1 - weight) + verdict.score * weight
+    return mescola(lexical_score, verdict.score, llm_weight)
