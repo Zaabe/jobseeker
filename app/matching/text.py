@@ -9,6 +9,8 @@ import math
 import re
 import unicodedata
 from collections import Counter
+
+from .. import paesi
 from typing import Iterable
 
 # Parole troppo comuni per dire qualcosa sul contenuto. Una lista curata batte
@@ -110,23 +112,11 @@ for _a, _b in _PLACE_PAIRS:
     _PLACE_ALIASES.setdefault(_b, set()).update({_a, _b})
 
 
-# Codice ISO a due lettere -> nomi del paese in italiano e inglese. Serve a
-# riconoscere una ricerca "a livello di paese", che va risolta sul campo paese
-# dell'offerta e non sul testo della sede: molte fonti scrivono "Roma,
-# Provincia di Roma" senza mai nominare l'Italia.
-COUNTRY_NAMES: dict[str, tuple[str, ...]] = {
-    "it": ("italia", "italy"), "fr": ("francia", "france"),
-    "de": ("germania", "germany"), "es": ("spagna", "spain"),
-    "pt": ("portogallo", "portugal"), "ch": ("svizzera", "switzerland"),
-    "at": ("austria",), "be": ("belgio", "belgium"),
-    "nl": ("paesi bassi", "netherlands", "olanda"), "ie": ("irlanda", "ireland"),
-    "gb": ("regno unito", "united kingdom", "uk"), "us": ("stati uniti", "united states"),
-    "dk": ("danimarca", "denmark"), "se": ("svezia", "sweden"),
-    "no": ("norvegia", "norway"), "fi": ("finlandia", "finland"),
-    "pl": ("polonia", "poland"), "gr": ("grecia", "greece"),
-    "cz": ("repubblica ceca", "czech republic", "czechia"),
-    "hu": ("ungheria", "hungary"), "ro": ("romania",),
-}
+# I nomi dei paesi stanno in `app/paesi.py`, perche' li leggono anche le fonti:
+# servono a riconoscere una ricerca "a livello di paese", che va risolta sul
+# campo paese dell'offerta e non sul testo della sede (molte fonti scrivono
+# "Roma, Provincia di Roma" senza mai nominare l'Italia).
+COUNTRY_NAMES = paesi.NOMI
 
 
 def country_names(iso: str) -> set[str]:

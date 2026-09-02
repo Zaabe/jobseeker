@@ -63,6 +63,12 @@ class Pipeline:
         self._feedback_key: tuple[int, str] | None = None
         self._lock = asyncio.Lock()
         self.last_summary: dict[str, Any] = {}
+        # A che punto e' il giro in corso, o None se non ce n'e' uno. Serve
+        # all'interfaccia, che ci disegna la barra al posto del pulsante: senza
+        # un dato sul server la barra vivrebbe solo nella pagina che ha premuto
+        # il pulsante, e sparirebbe ricaricando o guardando da un altro
+        # dispositivo.
+        self.corsa: dict[str, Any] | None = None
         # Ultimo problema del livello semantico, riportato nel riepilogo del
         # ciclo: senza, un modello che non risponde fallisce senza dirlo.
         self.last_llm_error: str = ""
@@ -223,8 +229,20 @@ class Pipeline:
         if spec.keywords:
             if not any(normalize(term) in haystack for term in spec.keywords if term):
                 return False
-        if spec.location_filter and spec.location:
+        if spec.location_filter:
             if posting.remote and spec.remote_ok:
+                return True
+            # Il paese vale da solo. Prima tutto questo blocco partiva solo se
+            # la ricerca aveva scritto anche una localita': chi metteva "Paese:
+            # IT" e lasciava vuota la localita' si ritrovava le offerte estere
+            # in mezzo alle altre, perche' non veniva controllato niente. Le
+            # offerte che il paese non lo dichiarano passano di qui e vengono
+            # giudicate sul testo della sede, come prima: meglio una in piu' da
+            # scartare a mano che una buona buttata su un'informazione assente.
+            if (spec.country and posting.country
+                    and not job_in_country(posting.country, spec.country)):
+                return False
+            if not spec.location:
                 return True
             place = " ".join(p for p in (posting.location, posting.city, posting.region,
                                          posting.country) if p)
@@ -354,7 +372,12 @@ class Pipeline:
                 row["id"], cv_id, best_spec.id if best_spec else None, best.score,
                 json.dumps(breakdown, ensure_ascii=False), db.utcnow(),
             ))
-            scored.append({"job": db.row_to_dict(row), "score": best.score, "breakdown": breakdown})
+            scored.append({"job": db.row_to_dict(row), "score": best.score,
+                           "breakdown": breakdown,
+                           # Quale ricerca ha prodotto il punteggio: serve alle
+                           # notifiche, perche' ogni ricerca puo' avere la sua
+                           # soglia.
+                           "search_id": best_spec.id if best_spec else None})
             if len(da_scrivere) >= LOTTO_PUNTEGGI:
                 db.executemany(SQL_PUNTEGGIO, da_scrivere)
                 da_scrivere.clear()
@@ -477,6 +500,11 @@ class Pipeline:
              outcome["fetched"], outcome["new"], outcome["error"][:400]),
         )
 
+    def _fase(self, fase: str, **campi: Any) -> None:
+        """Aggiorna il punto in cui si trova il giro. Se non e' in corso, tace."""
+        if self.corsa is not None:
+            self.corsa.update(fase=fase, **campi)
+
     async def run_cycle(self, provider_ids: list[int] | None = None, force: bool = False) -> dict[str, Any]:
         """Un giro completo: scarica, archivia, valuta, notifica."""
         async with self._lock:
@@ -487,7 +515,13 @@ class Pipeline:
                 sql += f" WHERE id IN ({','.join('?' * len(provider_ids))})"
                 params = list(provider_ids)
             rows = db.query(sql + " ORDER BY id", params)
-            due = [r for r in rows if force or provider_ids or self._is_due(r, now)]
+            # Una fonte spenta resta spenta anche premendo "Controlla ora":
+            # `force` salta il controllo sugli intervalli, non la volonta' di chi
+            # l'ha disattivata. Se invece la si chiede per id - il pulsante
+            # "Esegui" sulla sua scheda - allora e' una richiesta esplicita.
+            due = [r for r in rows
+                   if (r["enabled"] or provider_ids)
+                   and (force or provider_ids or self._is_due(r, now))]
 
             summary: dict[str, Any] = {
                 "started_at": db.utcnow(), "providers_total": len(rows),
@@ -499,50 +533,110 @@ class Pipeline:
                 self.last_summary = summary
                 return summary
 
-            specs = self.search_specs()
-            headers = {
-                "User-Agent": db.get_setting("user_agent", "JobSeeker/1.0"),
-                "Accept": "application/json, text/plain;q=0.9, */*;q=0.8",
-            }
-            async with httpx.AsyncClient(timeout=45, follow_redirects=True, headers=headers) as http:
-                new_ids: list[int] = []
-                for row in due:
-                    try:
-                        outcome = await self._run_provider(row, specs, http)
-                    except Exception as exc:
-                        # Una fonte che fallisce in modo imprevisto non deve
-                        # far saltare le altre: il ciclo prosegue e l'errore
-                        # finisce nel riepilogo.
-                        log.exception("fonte %s: giro interrotto", row["label"])
-                        outcome = {"provider_id": row["id"], "label": row["label"],
-                                   "kind": row["kind"], "fetched": 0, "new": 0, "ok": False,
-                                   "error": f"{type(exc).__name__}: {exc}"[:400]}
-                    summary["results"].append(outcome)
-                    summary["fetched"] += outcome["fetched"]
-                    summary["new_jobs"] += outcome["new"]
-                    if outcome["error"]:
-                        summary["errors"].append(f"{row['label']}: {outcome['error']}")
-                    new_ids.extend(outcome.get("new_ids", []))
-                    # Piccola pausa fra provider diversi: le API pubbliche
-                    # gradiscono un ritmo umano piu' di una raffica.
-                    if len(due) > 1:
-                        await asyncio.sleep(random.uniform(0.3, 0.9))
+            # Da qui parte il lavoro vero, e l'interfaccia puo' seguirlo. Le
+            # fonti sono quelle lette un attimo fa: una aggiunta adesso non
+            # entra in questo giro - viene interrogata al successivo, che e'
+            # anche quello che si aspetta chi la sta aggiungendo.
+            self.corsa = {"iniziata": db.utcnow(), "fase": "fonti", "fatte": 0,
+                          "totale": len(due), "fonte": "", "manuale": bool(force)}
+            try:
+                return await self._giro(due, summary)
+            finally:
+                self.corsa = None
 
-            # I punteggi si calcolano fuori dal contesto di rete: e' lavoro locale.
-            scored = self.score_jobs(job_ids=new_ids or None)
-            summary["scored"] = len(scored)
-            # L'eventuale affinamento semantico avviene prima delle notifiche,
-            # cosi' la soglia viene applicata al punteggio definitivo.
-            # Anche a mani vuote: se non e' arrivato niente di nuovo, il
-            # modello usa il giro per smaltire l'arretrato.
-            summary["llm_refined"] = await self.refine_with_llm(scored)
-            if self.last_llm_error:
-                summary["errors"].append(self.last_llm_error)
-            if scored:
-                summary["notify"] = notify.dispatch(scored)
-            summary["finished_at"] = db.utcnow()
-            self.last_summary = summary
-            return summary
+    async def _giro(self, due: list[Any], summary: dict[str, Any]) -> dict[str, Any]:
+        """Il corpo di un giro, con `self.corsa` gia' aperta."""
+        specs = self.search_specs()
+        headers = {
+            "User-Agent": db.get_setting("user_agent", "JobSeeker/1.0"),
+            "Accept": "application/json, text/plain;q=0.9, */*;q=0.8",
+        }
+        async with httpx.AsyncClient(timeout=45, follow_redirects=True, headers=headers) as http:
+            new_ids: list[int] = []
+            for row in due:
+                self._fase("fonti", fonte=row["label"])
+                try:
+                    outcome = await self._run_provider(row, specs, http)
+                except Exception as exc:
+                    # Una fonte che fallisce in modo imprevisto non deve
+                    # far saltare le altre: il ciclo prosegue e l'errore
+                    # finisce nel riepilogo.
+                    log.exception("fonte %s: giro interrotto", row["label"])
+                    outcome = {"provider_id": row["id"], "label": row["label"],
+                               "kind": row["kind"], "fetched": 0, "new": 0, "ok": False,
+                               "error": f"{type(exc).__name__}: {exc}"[:400]}
+                self._fase("fonti", fatte=self.corsa["fatte"] + 1 if self.corsa else 0)
+                summary["results"].append(outcome)
+                summary["fetched"] += outcome["fetched"]
+                summary["new_jobs"] += outcome["new"]
+                if outcome["error"]:
+                    summary["errors"].append(f"{row['label']}: {outcome['error']}")
+                new_ids.extend(outcome.get("new_ids", []))
+                # Piccola pausa fra provider diversi: le API pubbliche
+                # gradiscono un ritmo umano piu' di una raffica.
+                if len(due) > 1:
+                    await asyncio.sleep(random.uniform(0.3, 0.9))
+
+        # I punteggi si calcolano fuori dal contesto di rete: e' lavoro locale.
+        self._fase("punteggi", fonte="")
+        scored = self.score_jobs(job_ids=new_ids or None)
+        summary["scored"] = len(scored)
+        # L'eventuale affinamento semantico avviene prima delle notifiche,
+        # cosi' la soglia viene applicata al punteggio definitivo.
+        # Anche a mani vuote: se non e' arrivato niente di nuovo, il
+        # modello usa il giro per smaltire l'arretrato.
+        self._fase("ia")
+        summary["llm_refined"] = await self.refine_with_llm(scored)
+        if self.last_llm_error:
+            summary["errors"].append(self.last_llm_error)
+        # Agli avvisi non vanno solo le offerte di questo giro, ma anche
+        # quelle che in archivio non ne hanno mai prodotto uno: senza,
+        # abbassare la soglia non avrebbe effetto su quello che c'e' gia',
+        # e chi la porta a zero aspettando gli avvisi non vedrebbe arrivare
+        # niente.
+        self._fase("notifiche")
+        candidati = scored + self.mai_annunciate({c["job"]["id"] for c in scored})
+        if candidati:
+            summary["notify"] = notify.dispatch(candidati)
+        summary["finished_at"] = db.utcnow()
+        self.last_summary = summary
+        return summary
+
+    # Quante offerte gia' in archivio guardare a ogni giro. E' un tetto di
+    # lettura, non di invii: quanti avvisi partono davvero lo decide
+    # `notify_max_per_cycle`.
+    MAI_ANNUNCIATE = 200
+
+    def mai_annunciate(self, escludi: set[int]) -> list[dict[str, Any]]:
+        """Le offerte in archivio che non hanno mai prodotto un avviso.
+
+        Senza questo elenco la soglia varrebbe solo per le offerte raccolte nel
+        giro in corso: un'offerta arrivata quando la soglia era alta resterebbe
+        muta per sempre, anche dopo averla abbassata a zero. Le offerte gia'
+        annunciate restano fuori anche se l'avviso e' stato tolto dall'elenco,
+        perche' la riga rimane come memoria.
+        """
+        if self.active_cv() is None:
+            return []
+        righe = db.query(
+            "SELECT j.*, m.score, m.breakdown_json, m.search_id FROM match m "
+            "JOIN job j ON j.id = m.job_id "
+            "WHERE m.cv_id = ? AND j.is_archived = 0 "
+            "  AND NOT EXISTS (SELECT 1 FROM notification n WHERE n.job_id = j.id) "
+            "ORDER BY m.score DESC LIMIT ?",
+            (self._cv_id, self.MAI_ANNUNCIATE),
+        )
+        arretrato = []
+        for riga in righe:
+            if riga["id"] in escludi:
+                continue
+            try:
+                breakdown = json.loads(riga["breakdown_json"] or "{}")
+            except ValueError:
+                breakdown = {}
+            arretrato.append({"job": db.row_to_dict(riga), "score": riga["score"],
+                              "breakdown": breakdown, "search_id": riga["search_id"]})
+        return arretrato
 
     # -- livello semantico opzionale ---------------------------------------
 
@@ -642,12 +736,21 @@ class Pipeline:
         proporzione al peso impostato, e la spiegazione viene conservata nel
         dettaglio dell'offerta, dove l'interfaccia la mostra.
         """
+        # L'errore parla dell'ultimo tentativo, quindi si azzera prima di
+        # tentare. Prima restava scritto: spegnendo la valutazione semantica la
+        # funzione uscira' subito qui sotto senza toccarlo, e il riepilogo di
+        # ogni giro continuava a riportare un guasto di un modello che nessuno
+        # stava piu' chiamando.
+        self.last_llm_error = ""
         if not db.get_setting_bool("llm_enabled", False):
             return 0
         provider = db.get_setting("llm_provider", llm.DEFAULT_PROVIDER)
         available, reason = llm.is_available(provider)
         if not available:
+            # Attiva ma inutilizzabile: dirlo, perche' il silenzio somiglia
+            # troppo al funzionare.
             log.warning("livello semantico attivo ma non utilizzabile (%s): %s", provider, reason)
+            self.last_llm_error = f"valutazione semantica attiva ma non utilizzabile: {reason}"
             return 0
 
         cv = self.active_cv()

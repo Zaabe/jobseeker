@@ -192,7 +192,13 @@ option { background: var(--sf); color: var(--tx); }
 @keyframes menuIn { from { opacity: 0; transform: translateY(-6px) scale(.97); } to { opacity: 1; transform: none; } }
 @keyframes menuUp { from { opacity: 0; transform: translateY(6px) scale(.97); } to { opacity: 1; transform: none; } }
 @keyframes expand { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
-@keyframes toastIn { from { opacity: 0; transform: translate(-50%, 14px) scale(.96); } to { opacity: 1; transform: translate(-50%, 0) scale(1); } }
+/* Niente spostamento orizzontale qui: a centrare gli avvisi ci pensa il loro
+   contenitore. Questo `-50%` veniva da quando era il singolo avviso a
+   centrarsi da solo, e l'animazione finisce con `both`, quindi restava:
+   ogni avviso finiva spostato a sinistra di mezza se stesso, e i piu'
+   lunghi molto piu' degli altri. */
+@keyframes toastIn { from { opacity: 0; transform: translateY(14px) scale(.96); }
+                     to { opacity: 1; transform: none; } }
 @keyframes spin { to { transform: rotate(360deg); } }
 @keyframes pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: .35; transform: scale(.82); } }
 
@@ -313,7 +319,12 @@ option { background: var(--sf); color: var(--tx); }
    descrizioni dei pannelli, i riquadri vuoti - perche' li' non e' lo spazio a
    mancare ma la riga a diventare troppo lunga da rileggere. */
 .view-wrap { padding: 26px 32px 60px; }
-.stack { display: flex; flex-direction: column; gap: 18px; }
+/* `min-width: 0` non e' un dettaglio: senza, un elemento flex o griglia si
+   rifiuta di stringersi sotto la larghezza del proprio contenuto. Bastava
+   un'etichetta di duecento lettere - una parola sola, che non si puo' spezzare
+   - per allargare la colonna, la scheda e tutto il resto fino a far comparire
+   la barra di scorrimento orizzontale. */
+.stack { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
 
 /* -------------------------------------------------------------- comandi */
 
@@ -461,7 +472,12 @@ input[type=range]::-moz-range-thumb { width: 17px; height: 17px; border: 0; bord
 .score.na i { color: var(--tx4); font-size: 11px; }
 
 .chips { display: flex; flex-wrap: wrap; gap: 6px; }
-.chip { font-size: 11.5px; font-weight: 500; padding: 3px 8px; border-radius: 6px; white-space: nowrap; background: var(--fl3); color: var(--tx3); }
+/* `max-width` e il taglio con i puntini tengono l'etichetta dentro la scheda.
+   Da adesso le etichette nuove si fermano a 32 caratteri, ma quelle salvate
+   prima possono essere lunghe quanto si vuole, e una riga di duecento lettere
+   usciva dal riquadro passando sopra tutto il resto. */
+.chip { font-size: 11.5px; font-weight: 500; padding: 3px 8px; border-radius: 6px; white-space: nowrap; background: var(--fl3); color: var(--tx3); min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.chip.tag > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .chip.ok { background: var(--ok2); color: var(--ok-ink); }
 .chip.miss { background: var(--bd2t); color: var(--bad-ink); }
 .chip.info { background: var(--ac5); color: var(--ac-ink); }
@@ -769,8 +785,19 @@ input[type=range]::-moz-range-thumb { width: 17px; height: 17px; border: 0; bord
 .modal-body { padding: 18px 24px 0; display: flex; flex-direction: column; gap: 13px; }
 .modal-foot { display: flex; gap: 9px; justify-content: flex-end; padding: 20px 24px 22px; margin-top: 18px; border-top: 1px solid var(--ln3); }
 
-.toasts { position: fixed; bottom: 26px; left: 50%; z-index: 90; display: flex; flex-direction: column; align-items: center; gap: 8px; transform: translateX(-50%); pointer-events: none; }
+/* Il contenitore prende tutta la larghezza della finestra e centra i suoi
+   figli: cosi' il centro di un avviso e' il centro della finestra, qualunque
+   lunghezza abbia il testo. Con `left: 50%` la colonna era larga quanto il
+   contenuto e mezza finestra al massimo, e un messaggio lungo la sfondava. */
+.toasts {
+  position: fixed; bottom: 26px; left: 0; right: 0; z-index: 90;
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  padding: 0 16px; pointer-events: none;
+}
 .toast {
+  /* Un messaggio lungo va a capo invece di allargarsi da un bordo all'altro:
+     un avviso larghe quanto lo schermo si legge peggio, non meglio. */
+  max-width: min(560px, 100%);
   display: flex; align-items: center; gap: 10px; padding: 11px 18px; border-radius: 14px;
   background: var(--toast); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
   color: #fff; font-size: 13px; font-weight: 500; box-shadow: 0 12px 40px rgba(0, 0, 0, .28);
@@ -1202,3 +1229,21 @@ input[type=range]::-moz-range-thumb { width: 17px; height: 17px; border: 0; bord
   border-radius: 50%; background: var(--bad); vertical-align: middle;
 }
 .pericolo .row + .row { border-top: 1px solid var(--bd3); }
+
+/* ------------------------------------------- controllo in corso ----------- */
+
+/* Il pulsante diventa la barra invece di essere sostituito da una: cambiare
+   elemento farebbe ballare la barra superiore a ogni giro, perche' un pulsante
+   e una barra non hanno la stessa larghezza. Il riempimento sta sotto
+   l'etichetta, che resta leggibile. */
+#btn-run { position: relative; overflow: hidden; }
+/* Il pulsante e' spento perche' non si puo' premere due volte, ma non deve
+   sembrare morto: durante il controllo e' la cosa piu' viva della pagina. */
+#btn-run.in-corso:disabled { opacity: 1; cursor: progress; }
+#btn-run .run-bar {
+  position: absolute; left: 0; top: 0; bottom: 0; width: 0;
+  background: rgba(255, 255, 255, .3); pointer-events: none;
+  transition: width .45s var(--ease);
+}
+#btn-run .spin, #btn-run #run-label { position: relative; }
+#run-label { font-variant-numeric: tabular-nums; }

@@ -1,6 +1,13 @@
 /* JobSeeker — logica dell'interfaccia. Nessuna libreria esterna.
    Parla con gli stessi endpoint della versione precedente: il backend non
-   sa che il frontend è cambiato. */
+   sa che il frontend è cambiato.
+
+   UNA TRAPPOLA, che è già costata due schermate bianche: le viste sono scritte
+   dentro stringhe template, e dentro una stringa template il backtick la
+   CHIUDE. Vale anche dentro un commento HTML: un `<!-- ... `codice` ... -->`
+   spezza la stringa, il resto del file diventa sintassi non valida e l'intera
+   applicazione smette di caricarsi. Nei commenti dentro le viste si citano i
+   nomi senza virgolette rovesciate. */
 "use strict";
 
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -216,6 +223,9 @@ const T = {
     urlFirst: "Incolla un indirizzo", back: "Collegamento al server ripristinato",
     bootFailed: "Avvio non riuscito", providersRun: "fonti interrogate", newJobs: "offerte nuove",
     byEmail: "per email", onTelegram: "su Telegram",
+    runPhaseSources: "Fonti", runPhaseScores: "Punteggi…", runPhaseAi: "Valutazione IA…",
+    runPhaseNotify: "Avvisi…", runStarting: "Avvio…",
+    sourceNextCycle: "Un controllo è in corso: questa fonte verrà interrogata al prossimo.",
     cvHint: "Carica un curriculum dalla scheda «Curriculum» per attivare i punteggi di compatibilità.",
     chatFound: "Chat trovata",
   },
@@ -426,6 +436,9 @@ const T = {
     urlFirst: "Paste a URL", back: "Connection to the server restored",
     bootFailed: "Startup failed", providersRun: "sources queried", newJobs: "new postings",
     byEmail: "by email", onTelegram: "on Telegram",
+    runPhaseSources: "Sources", runPhaseScores: "Scores…", runPhaseAi: "AI review…",
+    runPhaseNotify: "Alerts…", runStarting: "Starting…",
+    sourceNextCycle: "A check is running: this source will be queried on the next one.",
     cvHint: "Upload a résumé under “Profile” to switch on match scores.",
     chatFound: "Chat found",
   },
@@ -487,6 +500,16 @@ const state = {
   reasonsCatalogue: [],
   feedback: null,
   pendingReason: null,
+  // Il controllo in corso, cosi' come lo racconta il server: la barra si
+  // ridisegna leggendo qui, quindi cambiare sezione non la azzera.
+  corsa: null,
+  pollCorsa: null,
+  finePolling: 0,
+  // Che si e' visto un giro in corso, e se l'aveva chiesto qualcuno. Serve a
+  // non perdere il riepilogo finale: `corsa` si azzera appena il server dice
+  // che ha finito, e senza questa memoria il riepilogo veniva cercato quando
+  // non c'era piu' niente da cui prenderlo.
+  corsaVista: null,
   lang: "it",
   collapsed: false,
   jobs: { items: [], total: 0, offset: 0, limit: 30 },
@@ -584,6 +607,33 @@ function soloNumeri(input, { decimali = false } = {}) {
   });
 }
 
+/* Ferma la singola etichetta a `MAX_TAG` caratteri mentre si scrive.
+
+   Nei campi a virgole `maxlength` non serve: conterebbe l'elenco intero,
+   quindi due parole chiave corte sarebbero gia' al limite mentre una parola
+   lunghissima da sola passerebbe. Qui il limite vale per la voce fra una
+   virgola e l'altra, e il carattere in piu' semplicemente non compare - come
+   nei campi numerici, senza avvisi: che non si vada oltre si vede. */
+function limitaEtichette(input) {
+  if (!input || input.dataset.limiteTag) return;
+  input.dataset.limiteTag = "1";
+
+  input.addEventListener("input", () => {
+    const prima = input.value;
+    const dopo = prima.split(",").map((voce) => {
+      // Lo spazio davanti si conserva, altrimenti scrivere ", " diventa
+      // impossibile: quello che conta e' la lunghezza dell'etichetta.
+      const spazio = voce.match(/^\s*/)[0];
+      const corpo = voce.trim();
+      return corpo.length > MAX_TAG ? spazio + corpo.slice(0, MAX_TAG) : voce;
+    }).join(",");
+    if (dopo === prima) return;
+    const posizione = Math.max(0, (input.selectionStart || 0) - (prima.length - dopo.length));
+    input.value = dopo;
+    try { input.setSelectionRange(posizione, posizione); } catch (e) { /* non tutti i campi lo espongono */ }
+  });
+}
+
 /* Rimette il valore precedente quando il campo viene lasciato vuoto.
 
    L'aggancio e' `blur`, non `change`: `change` il browser lo emette solo se il
@@ -650,7 +700,16 @@ const jobMeta = (job, extra = []) => [
   job.company, job.remote ? t("remote") : (job.location || job.city), salaryText(job), ...extra,
 ].filter(Boolean).join("  ·  ");
 
-const splitList = (v) => v.split(",").map((s) => s.trim()).filter(Boolean);
+/* Quanto puo' essere lunga un'etichetta: una parola chiave, una competenza,
+   un termine da escludere. Non e' un capriccio - senza limite ci finisce
+   dentro una riga intera, e una riga intera esce dal riquadro della scheda.
+   Il taglio si fa anche qui e non solo con `maxlength`, perche' i campi delle
+   ricerche contengono piu' etichette separate da virgola: il limite del
+   browser conterebbe l'elenco, non le singole voci. Il server ha lo stesso
+   tetto, che e' quello che conta davvero. */
+const MAX_TAG = 32;
+const splitList = (v) =>
+  v.split(",").map((s) => s.trim().slice(0, MAX_TAG)).filter(Boolean);
 const cap = (s) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s);
 const sliderBg = (v, max = 100) =>
   `background:linear-gradient(90deg,var(--ac) 0 ${(v / max) * 100}%,var(--tr) ${(v / max) * 100}% 100%) center/100% 4px no-repeat`;
@@ -791,7 +850,7 @@ function renderShell() {
 
   $("#page-title").textContent = t(state.view);
   $("#page-sub").textContent = t("sub" + cap(state.view));
-  $("#run-label").textContent = t("run");
+  disegnaControllo();
   $("#btn-sidebar").title = t("toggleSidebar");
   $("#btn-bell").title = t("notifications");
   $$("#lang-seg button").forEach((b) => b.classList.toggle("on", b.dataset.lang === state.lang));
@@ -810,6 +869,92 @@ function renderShell() {
     : "—";
 }
 
+/* Il pulsante "Controlla ora" e il controllo in corso.
+
+   Lo stato vive in `state.corsa` e arriva dal server, non dal clic: cosi' la
+   barra resta al suo posto quando si cambia sezione (la barra superiore si
+   ridisegna e rilegge lo stato), ricompare dopo un ricaricamento e si vede
+   anche da un altro dispositivo aperto sulla stessa applicazione. */
+const FASI = { fonti: "runPhaseSources", punteggi: "runPhaseScores",
+               ia: "runPhaseAi", notifiche: "runPhaseNotify" };
+// Dove arriva la barra nelle fasi che non hanno un conteggio proprio. Alle
+// fonti spetta la parte lunga, perche' sono la parte lenta.
+const QUOTE = { punteggi: 90, ia: 95, notifiche: 98 };
+
+function disegnaControllo() {
+  const bottone = $("#btn-run");
+  const barra = $("#run-bar");
+  if (!bottone || !barra) return;
+  const corsa = state.corsa;
+  bottone.classList.toggle("in-corso", !!corsa);
+  bottone.disabled = !!corsa;
+  bottone.querySelector(".spin").hidden = !corsa;
+  if (!corsa) {
+    $("#run-label").textContent = t("run");
+    bottone.removeAttribute("title");
+    barra.style.width = "0%";
+    return;
+  }
+  const totale = corsa.totale || 0;
+  const fatte = Math.min(corsa.fatte || 0, totale || Infinity);
+  const quota = corsa.fase === "fonti"
+    ? 5 + (totale ? (fatte / totale) * 80 : 0)
+    : QUOTE[corsa.fase] || 5;
+  barra.style.width = `${Math.round(quota)}%`;
+  $("#run-label").textContent = corsa.fase === "fonti" && totale
+    ? `${t("runPhaseSources")} ${fatte}/${totale}`
+    : t(FASI[corsa.fase] || "runStarting");
+  // Quale fonte si sta interrogando sta nel suggerimento: dentro il pulsante
+  // allargherebbe la barra superiore a ogni nome piu' lungo del precedente.
+  bottone.title = corsa.fonte || "";
+}
+
+/* Segue il controllo fino alla fine.
+
+   `insistiPer` serve a chi sa che un giro sta per partire ma non e' ancora
+   partito - il conto alla rovescia arrivato a zero: senza, il primo sguardo
+   non troverebbe niente e si smetterebbe di guardare un attimo prima che
+   cominci. */
+function seguiControllo(insistiPer = 0) {
+  state.finePolling = Math.max(state.finePolling, Date.now() + insistiPer);
+  if (state.pollCorsa) return;
+  const guarda = async () => {
+    let r;
+    try { r = await api("/api/run/progress"); } catch (e) { return; }
+    state.corsa = r.running ? r.progress : null;
+    if (r.running) state.corsaVista = { manuale: !!(r.progress && r.progress.manuale) };
+    disegnaControllo();
+    if (r.running) return;
+    // Non ancora partito ma sta per partire: si continua a guardare.
+    if (Date.now() < state.finePolling) return;
+    clearInterval(state.pollCorsa);
+    state.pollCorsa = null;
+    const visto = state.corsaVista;
+    state.corsaVista = null;
+    if (visto) await controlloFinito(r.last || {}, visto.manuale);
+  };
+  state.pollCorsa = setInterval(guarda, 900);
+  guarda();
+}
+
+async function controlloFinito(sommario, avvisa) {
+  // Il riepilogo si annuncia solo se il controllo l'ha chiesto qualcuno: per i
+  // giri automatici basta che i numeri si aggiornino, senza un avviso ogni
+  // volta che lo scheduler fa il suo lavoro.
+  if (avvisa) {
+    const parti = [`${sommario.providers_run ?? 0} ${t("providersRun")}`,
+                   `${sommario.new_jobs ?? 0} ${t("newJobs")}`];
+    const avvisi = sommario.notify || {};
+    if (avvisi.email_sent) parti.push(`${avvisi.email_sent} ${t("byEmail")}`);
+    if (avvisi.telegram_sent) parti.push(`${avvisi.telegram_sent} ${t("onTelegram")}`);
+    toast(parti.join(", "), (sommario.errors || []).length ? "bad" : "");
+    [...(sommario.errors || []), ...(avvisi.errors || [])].slice(0, 3)
+      .forEach((err) => toast(err, "bad"));
+  }
+  await loadStatus();
+  if (LOADERS[state.view]) LOADERS[state.view]();
+}
+
 function tickCountdown() {
   const pulse = $("#pulse");
   const text = $("#cycle-text");
@@ -817,6 +962,9 @@ function tickCountdown() {
   if (!state.nextRunAt) { pulse.className = "dot idle"; text.textContent = t("paused"); return; }
   const secs = Math.max(0, Math.round((state.nextRunAt - Date.now()) / 1000));
   pulse.className = secs <= 2 ? "dot busy" : "dot";
+  // Il giro automatico sta per partire: si comincia a guardare, cosi' la barra
+  // compare anche per i controlli che non ha chiesto nessuno.
+  if (secs === 0 && !state.pollCorsa) seguiControllo(10000);
   text.textContent = `${t("nextIn")} ${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, "0")}`;
 }
 
@@ -835,16 +983,18 @@ async function loadOverview() {
 
   const items = jobs.items || [];
   const scored = items.filter((j) => j.score !== null && j.score !== undefined);
-  const dayAgo = Date.now() - 86400000;
-  const fresh = items.filter((j) => new Date(j.posted_at || j.first_seen_at).getTime() > dayAgo);
-  const threshold = Number(state.settings.min_match_notify || 0);
   const counts = apps.counts || {};
 
+  /* Le offerte delle ultime 24 ore e quante superano la soglia arrivano dal
+     server, contate sull'archivio. Prima le contava questa funzione sulle
+     duecento offerte richieste qui sopra - che sono le duecento col punteggio
+     piu' alto: le offerte nuove con punteggio basso non entravano nel conto, e
+     il riepilogo diceva meno di quello che c'era. */
   state.overview = {
     total: status.counts.jobs,
-    fresh: fresh.length,
-    freshAbove: fresh.filter((j) => (j.score || 0) >= threshold).length,
-    avg: scored.length ? Math.round(scored.reduce((a, j) => a + j.score, 0) / scored.length) : null,
+    fresh: status.fresh_24h ?? 0,
+    freshAbove: status.fresh_above_threshold ?? 0,
+    avg: status.avg_score ?? null,
     apps: Object.values(counts).reduce((a, b) => a + b, 0),
     awaiting: (counts.applied || 0) + (counts.interview || 0),
     counts,
@@ -1220,6 +1370,8 @@ function renderSearches() {
     // La soglia specifica e' l'unico campo numerico del modulo: le altre voci
     // sono parole chiave, localita' e codice del paese.
     if (i.dataset.sf === "min") soloNumeri(i);
+    // I due campi che contengono etichette separate da virgola.
+    if (i.dataset.sf === "keywords" || i.dataset.sf === "exclude") limitaEtichette(i);
     i.oninput = () => {
       state.form.search = { ...(state.form.search || {}), [i.dataset.sf]: i.value };
     };
@@ -1454,6 +1606,9 @@ function wireSources() {
     try {
       await api("/api/providers", { method: "POST", body: { url: d.url, kind: d.kind, config: d.config } });
       toast(t("sourceAdded"));
+      // Il giro in corso ha letto l'elenco delle fonti quando e' partito:
+      // questa entra al prossimo. Meglio dirlo che farlo scoprire.
+      if (state.corsa) toast(t("sourceNextCycle"));
       state.detected = null;
       await Promise.all([loadSources(), loadJobs()]);
     } catch (e) { toast(e.message, "bad"); }
@@ -1480,8 +1635,13 @@ function wireSources() {
     b.disabled = true;
     try {
       const r = await api(`/api/run?provider_id=${b.dataset.runProvider}`, { method: "POST" });
-      toast(`${r.fetched} ${t("relevant")}, ${r.new_jobs} ${t("newJobs")}`);
-      await Promise.all([loadSources(), loadJobs(), loadStatus()]);
+      const nome = b.closest(".provider")?.querySelector("b")?.textContent || "";
+      state.corsa = r.progress
+        || { fase: "fonti", fatte: 0, totale: 1, fonte: nome, manuale: true };
+      state.corsaVista = { manuale: true };
+      state.finePolling = 0;
+      disegnaControllo();
+      seguiControllo();
     } catch (e) { toast(e.message, "bad"); }
     b.disabled = false;
   });
@@ -1677,6 +1837,7 @@ function openProviderModal(kind, existing = null) {
         } else {
           await api("/api/providers", { method: "POST", body: { kind, config: values, min_interval_sec: interval } });
           toast(t("sourceAdded"));
+          if (state.corsa) toast(t("sourceNextCycle"));
         }
         closeOverlay();
         await Promise.all([loadSources(), loadJobs()]);
@@ -1778,8 +1939,14 @@ function renderCv() {
 
             <div class="chips" style="margin-top:16px" data-tags="${c.id}">${tagChips(c.id)}</div>
 
+            <!-- Niente attributo list: la datalist del browser si apre al clic
+                 con dentro tutte e centoventi le competenze, e quel menu a
+                 tendina non lo disegniamo noi, non segue il tema e copre mezza
+                 scheda. Qui si scrive e basta; gli esempi stanno nel testo del
+                 campo. -->
             <div class="tag-add">
-              <input class="input" list="skill-list" data-newtag="${c.id}" placeholder="${t("addSkillPh")}">
+              <input class="input" data-newtag="${c.id}" placeholder="${t("addSkillPh")}"
+                     autocomplete="off" spellcheck="false" maxlength="${MAX_TAG}">
               <button class="btn" type="button" data-addtag="${c.id}">${t("add")}</button>
             </div>
             <p class="legend">${t("tagLegend")}</p>
@@ -1803,8 +1970,6 @@ function renderCv() {
           <p class="lead" style="margin:0 0 12px">${t("manualBody")}</p>
           <button class="btn" type="button" id="cv-manual">${t("manualCv")}</button>
         </div>` : ""}
-        <datalist id="skill-list">${state.skills.map((s) =>
-          `<option value="${esc(s.name)}">${esc(s.group || "")}</option>`).join("")}</datalist>
       </div>
 
       <section class="panel form-panel" style="position:static">
@@ -1868,7 +2033,8 @@ function wireCv() {
 
   const addTag = async (id) => {
     const input = $(`[data-newtag="${id}"]`);
-    const typed = input.value.trim();
+    // `maxlength` copre chi scrive; il taglio qui copre chi incolla.
+    const typed = input.value.trim().slice(0, MAX_TAG);
     if (!typed) return;
     // La normalizzazione la fa il server, che conosce anche gli alias.
     let value = typed;
@@ -2804,7 +2970,14 @@ async function openJob(id, ritorno) {
     const pannello = document.querySelector("#overlay .drawer");
     if (pannello && scorrimento) pannello.scrollTop = scorrimento;
 
-    const setStatus = async (status, notes) => {
+    /* `avvisa` distingue chi ha chiesto di cambiare stato da chi ci passa per
+       forza. Accendere un motivo di scarto, o salvare una nota, deve riscrivere
+       anche lo stato - e ogni volta compariva «Segnata come scartata», per una
+       cosa che l'utente non aveva chiesto: sceglierne tre di fila voleva dire
+       tre avvisi in fila. L'avviso resta dove serve, cioe' sul menu dello
+       stato, che e' l'unico posto in cui lo stato e' la cosa che si sta
+       cambiando. */
+    const setStatus = async (status, notes, avvisa = true) => {
       if (!status) return;
       // I motivi seguono lo stato: se non e' piu' uno scarto non hanno senso.
       if (!STATI_NEGATIVI.includes(status)) motiviAttuali = [];
@@ -2813,12 +2986,12 @@ async function openJob(id, ritorno) {
         body: { status, notes: notes ?? (($("#d-notes") || {}).value || ""), reasons: motiviAttuali },
       });
       job.app_reasons = JSON.stringify(motiviAttuali);
-      toast(`${t("markedAs")} «${t(status)}»`);
+      if (avvisa) toast(`${t("markedAs")} «${t(status)}»`);
       aggiornaStatoInPosto(id, status, job);
     };
 
     $("#d-save-notes").onclick = async () => {
-      await setStatus(job.app_status || "saved");
+      await setStatus(job.app_status || "saved", undefined, false);
       toast(t("notesSaved"));
     };
     collegaRimozione(id, job);
@@ -2831,7 +3004,7 @@ async function openJob(id, ritorno) {
         ? [...new Set([...motiviAttuali, chiave])]
         : motiviAttuali.filter((x) => x !== chiave);
       try {
-        await setStatus(job.app_status || "discarded");
+        await setStatus(job.app_status || "discarded", undefined, false);
       } catch (e) {
         bottone.classList.toggle("on");
         toast(e.message, "bad");
@@ -3282,24 +3455,19 @@ function wire() {
   $("#me").onclick = () => switchView("cv");
 
   $("#btn-run").onclick = async () => {
-    const button = $("#btn-run");
-    button.disabled = true;
-    button.querySelector(".spin").hidden = false;
-    $("#run-label").textContent = t("running");
     try {
       const r = await api("/api/run", { method: "POST" });
-      const parts = [`${r.providers_run} ${t("providersRun")}`, `${r.new_jobs} ${t("newJobs")}`];
-      if (r.notify && r.notify.email_sent) parts.push(`${r.notify.email_sent} ${t("byEmail")}`);
-      if (r.notify && r.notify.telegram_sent) parts.push(`${r.notify.telegram_sent} ${t("onTelegram")}`);
-      toast(parts.join(", "), (r.errors || []).length ? "bad" : "");
-      [...(r.errors || []), ...((r.notify && r.notify.errors) || [])].slice(0, 3)
-        .forEach((err) => toast(err, "bad"));
-      await loadStatus();
-      if (LOADERS[state.view]) LOADERS[state.view]();
+      // Il giro gira sul server: qui si mostra subito qualcosa e poi si
+      // seguono le fasi, invece di tenere aperta una richiesta per minuti.
+      state.corsa = r.progress
+        || { fase: "fonti", fatte: 0, totale: 0, fonte: "", manuale: true };
+      state.corsaVista = { manuale: true };
+      // Un'attesa lasciata in piedi da un giro automatico ritarderebbe il
+      // riepilogo di questo, che invece l'ha chiesto qualcuno adesso.
+      state.finePolling = 0;
+      disegnaControllo();
+      seguiControllo();
     } catch (e) { toast(e.message, "bad"); }
-    button.disabled = false;
-    button.querySelector(".spin").hidden = true;
-    $("#run-label").textContent = t("run");
   };
 }
 

@@ -207,6 +207,12 @@ MIGRATIONS: list[tuple[str, str, str]] = [
     # Come e' stato letto il curriculum e su cosa le due letture non erano
     # d'accordo. Serve a non far passare per certo un dato che certo non e'.
     ("cv", "parse_json", "TEXT NOT NULL DEFAULT '{}'"),
+    # Avviso tolto dall'elenco dall'utente. Prima la X cancellava la riga, e
+    # la riga e' anche la memoria di "questa offerta l'ho gia' annunciata":
+    # cancellarla rendeva l'offerta di nuovo annunciabile, quindi scartare un
+    # avviso lo avrebbe fatto tornare al giro dopo. Ora la riga resta e sparisce
+    # solo dall'elenco.
+    ("notification", "dismissed", "INTEGER NOT NULL DEFAULT 0"),
     # Un foglietto che la fonte si lascia da un giro all'altro. Serve a chi
     # sfoglia un elenco a pagine e deve ricordarsi dov'era arrivato: senza,
     # ogni giro ricomincerebbe dalla prima pagina e il fondo dell'elenco non

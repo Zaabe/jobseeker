@@ -74,6 +74,25 @@ app = FastAPI(title="JobSeeker", version="1.0.0", lifespan=lifespan)
 # Modelli di richiesta
 # --------------------------------------------------------------------------
 
+# Lunghezza massima di un'etichetta: parole chiave, termini da escludere,
+# competenze del profilo. Serve a due cose. La prima e' che un'etichetta lunga
+# una riga esce dal riquadro della scheda. La seconda e' che un'etichetta lunga
+# una riga non e' un'etichetta: nel confronto con le offerte non corrispondera'
+# mai a niente, quindi e' rumore che sembra un criterio.
+MAX_TAG = 32
+
+
+def _etichette(valori: list[str]) -> list[str]:
+    """Ripulisce un elenco di etichette: spazi via, troppo lunghe accorciate,
+    vuote e ripetute fuori."""
+    pulite: list[str] = []
+    for valore in valori or []:
+        voce = (valore or "").strip()[:MAX_TAG]
+        if voce and voce not in pulite:
+            pulite.append(voce)
+    return pulite
+
+
 class SearchIn(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     keywords: list[str] = []
@@ -156,21 +175,46 @@ def get_status() -> dict[str, Any]:
     )
     cv = db.query_one("SELECT id, name, uploaded_at FROM cv WHERE is_active = 1")
     threshold = db.get_setting_int("min_match_notify", 40)
+    # Solo i punteggi del profilo attivo. Ogni profilo ha la sua riga di
+    # punteggio per ogni offerta: senza il filtro, chi ha due profili in
+    # archivio vedeva il doppio delle offerte sopra soglia, e con tre il triplo.
+    cv_id = cv["id"] if cv else -1
     above = db.query_one(
         "SELECT COUNT(*) AS n FROM match m JOIN job j ON j.id = m.job_id "
-        "WHERE m.score >= ? AND j.is_archived = 0", (threshold,)
+        "WHERE m.cv_id = ? AND m.score >= ? AND j.is_archived = 0", (cv_id, threshold)
+    )
+    # Le ultime 24 ore, contate sull'archivio intero. Prima questi due numeri
+    # li calcolava l'interfaccia sulle prime duecento offerte per punteggio:
+    # tutto quello che stava sotto non veniva contato, quindi il riepilogo
+    # diceva meno di quello che c'era davvero.
+    giorno = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat(timespec="seconds")
+    fresche = db.query_one(
+        "SELECT COUNT(*) AS n, "
+        "       SUM(CASE WHEN COALESCE(m.score, 0) >= ? THEN 1 ELSE 0 END) AS sopra "
+        "FROM job j LEFT JOIN match m ON m.job_id = j.id AND m.cv_id = ? "
+        "WHERE j.is_archived = 0 AND COALESCE(j.posted_at, j.first_seen_at) >= ?",
+        (threshold, cv_id, giorno),
+    )
+    # Anche la media e' dell'archivio, per lo stesso motivo: calcolata sulle
+    # prime duecento per punteggio veniva sempre piu' alta del vero.
+    media = db.query_one(
+        "SELECT AVG(m.score) AS media FROM match m JOIN job j ON j.id = m.job_id "
+        "WHERE m.cv_id = ? AND j.is_archived = 0", (cv_id,)
     )
     # Il pannello raggruppa per offerta, perche' la stessa offerta genera una
     # riga per canale (desktop, email, Telegram). Contare le righe faceva
     # annunciare al badge il doppio o il triplo delle voci poi elencate.
     unseen = db.query_one(
         "SELECT COUNT(DISTINCT n.job_id) AS n FROM notification n "
-        "JOIN job j ON j.id = n.job_id WHERE n.seen = 0 AND n.ok = 1")
+        "JOIN job j ON j.id = n.job_id WHERE n.seen = 0 AND n.ok = 1 AND n.dismissed = 0")
     return {
         "counts": dict(counts),
         "active_cv": db.row_to_dict(cv),
         "threshold": threshold,
         "above_threshold": above["n"],
+        "fresh_24h": fresche["n"] or 0,
+        "fresh_above_threshold": fresche["sopra"] or 0,
+        "avg_score": round(media["media"]) if media["media"] is not None else None,
         "unseen_notifications": unseen["n"],
         "scheduler": scheduler.status(),
         "last_run": pipeline.last_summary,
@@ -179,11 +223,53 @@ def get_status() -> dict[str, Any]:
     }
 
 
+# I giri avviati a mano vivono qui. Il riferimento va tenuto: un task che
+# nessuno guarda puo' essere raccolto dal garbage collector a meta' lavoro.
+_giri_in_corso: set[asyncio.Task] = set()
+
+
+async def _giro_a_parte(ids: list[int] | None) -> None:
+    """Esegue un giro fuori dalla richiesta che l'ha chiesto."""
+    try:
+        await pipeline.run_cycle(provider_ids=ids, force=True)
+    except Exception:
+        log.exception("controllo avviato a mano interrotto")
+
+
 @app.post("/api/run")
 async def run_now(provider_id: int | None = None) -> dict[str, Any]:
-    """Esegue subito un ciclo di controllo, ignorando gli intervalli."""
+    """Avvia subito un controllo e risponde senza aspettare che finisca.
+
+    Prima la risposta arrivava a giro concluso. Con LinkedIn fra le fonti un
+    giro dura minuti, e una richiesta HTTP tenuta aperta per minuti la chiude
+    il primo proxy che trova sulla strada; ricaricare la pagina, poi, faceva
+    perdere l'unico filo che diceva com'era andata. Ora il giro parte per conto
+    suo e l'avanzamento si legge da `/api/run/progress`, che e' anche il modo
+    in cui la barra ricompare dopo un ricaricamento o su un altro dispositivo.
+    """
+    if pipeline.corsa is not None:
+        return {"started": False, "already_running": True, "progress": dict(pipeline.corsa)}
     ids = [provider_id] if provider_id else None
-    return await pipeline.run_cycle(provider_ids=ids, force=True)
+    task = asyncio.create_task(_giro_a_parte(ids))
+    _giri_in_corso.add(task)
+    task.add_done_callback(_giri_in_corso.discard)
+    return {"started": True, "already_running": False}
+
+
+@app.get("/api/run/progress")
+def run_progress() -> dict[str, Any]:
+    """Se c'e' un controllo in corso, a che punto e'; e com'e' andato l'ultimo.
+
+    Sta in un endpoint suo e non dentro `/api/status` perche' l'interfaccia lo
+    interroga circa una volta al secondo mentre la barra e' visibile, mentre
+    `/api/status` fa una manciata di conteggi sull'intero archivio.
+    """
+    corsa = pipeline.corsa
+    return {
+        "running": corsa is not None,
+        "progress": dict(corsa) if corsa is not None else None,
+        "last": pipeline.last_summary,
+    }
 
 
 @app.post("/api/rescore")
@@ -210,7 +296,8 @@ def create_search(payload: SearchIn) -> dict[str, Any]:
     cursor = db.execute(
         "INSERT INTO search(name, keywords_json, exclude_json, location, country, remote_ok, "
         "location_filter, min_match, enabled, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
-        (payload.name, json.dumps(payload.keywords), json.dumps(payload.exclude),
+        (payload.name, json.dumps(_etichette(payload.keywords)),
+         json.dumps(_etichette(payload.exclude)),
          payload.location, payload.country, int(payload.remote_ok), int(payload.location_filter),
          payload.min_match, int(payload.enabled), db.utcnow()),
     )
@@ -224,7 +311,8 @@ def update_search(search_id: int, payload: SearchIn) -> dict[str, Any]:
     db.execute(
         "UPDATE search SET name=?, keywords_json=?, exclude_json=?, location=?, country=?, "
         "remote_ok=?, location_filter=?, min_match=?, enabled=? WHERE id=?",
-        (payload.name, json.dumps(payload.keywords), json.dumps(payload.exclude),
+        (payload.name, json.dumps(_etichette(payload.keywords)),
+         json.dumps(_etichette(payload.exclude)),
          payload.location, payload.country, int(payload.remote_ok), int(payload.location_filter),
          payload.min_match, int(payload.enabled), search_id),
     )
@@ -812,7 +900,7 @@ def _split_tags(tags: list[str]) -> tuple[list[str], list[str]]:
     skills: list[str] = []
     extra: list[str] = []
     for tag in tags:
-        pulito = (tag or "").strip()
+        pulito = (tag or "").strip()[:MAX_TAG]
         if not pulito:
             continue
         canonico = resolve_skill(pulito)
@@ -960,7 +1048,7 @@ def analyze(payload: AnalyzeIn) -> dict[str, Any]:
 
 @app.get("/api/notifications")
 def list_notifications(unseen_only: bool = False, limit: int = Query(30, ge=1, le=200)) -> list[dict[str, Any]]:
-    where = "WHERE n.ok = 1" + (" AND n.seen = 0" if unseen_only else "")
+    where = "WHERE n.ok = 1 AND n.dismissed = 0" + (" AND n.seen = 0" if unseen_only else "")
     cv = db.query_one("SELECT id FROM cv WHERE is_active = 1")
     rows = db.query(
         "SELECT n.*, j.title, j.company, j.url, j.location FROM notification n "
@@ -973,16 +1061,14 @@ def list_notifications(unseen_only: bool = False, limit: int = Query(30, ge=1, l
 
 @app.delete("/api/notifications")
 def clear_notifications() -> dict[str, int]:
-    """Svuota lo storico delle notifiche.
+    """Svuota l'elenco degli avvisi.
 
-    Cancella solo il registro degli avvisi: le offerte e lo storico delle
-    candidature non vengono toccati. Serve a ripulire un elenco lungo, non a
-    dimenticare le offerte.
-
-    Nota: cancellare un avviso rende l'offerta di nuovo notificabile, perche'
-    il controllo anti-ripetizione si basa proprio su queste righe.
+    Le righe non vengono cancellate ma segnate come scartate: sono anche la
+    memoria di quali offerte sono gia' state annunciate, e buttarle via
+    significherebbe rivedere gli stessi avvisi al giro successivo. Le offerte e
+    lo storico delle candidature non vengono toccati.
     """
-    cursor = db.execute("DELETE FROM notification")
+    cursor = db.execute("UPDATE notification SET dismissed = 1, seen = 1 WHERE dismissed = 0")
     return {"deleted": cursor.rowcount}
 
 
@@ -995,10 +1081,13 @@ def clear_notification(job_id: int) -> dict[str, int]:
     Telegram), e cancellarne una sola lascerebbe la voce dov'era, arrivata
     dagli altri canali.
 
-    Come per lo svuotamento totale, l'offerta torna notificabile: il controllo
-    anti-ripetizione si basa proprio su queste righe.
+    Le righe restano, segnate come scartate: sono la memoria di quali offerte
+    sono gia' state annunciate, e cancellarle farebbe ricomparire lo stesso
+    avviso al giro successivo.
     """
-    cursor = db.execute("DELETE FROM notification WHERE job_id = ?", (job_id,))
+    cursor = db.execute(
+        "UPDATE notification SET dismissed = 1, seen = 1 WHERE job_id = ? AND dismissed = 0",
+        (job_id,))
     return {"deleted": cursor.rowcount}
 
 

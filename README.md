@@ -404,4 +404,13 @@ spunta *«scarta le offerte fuori dalla località»* oppure allarga la località
 
 > Attenzione: il **nome** della ricerca non partecipa in alcun modo al filtro. Quattro
 > ricerche chiamate diversamente ma con le stesse parole chiave si comportano in modo
-> identico: a decidere sono solo parole chiave, esclusioni e località.
+> identico: a decidere sono solo parole chiave, esclusioni, località e paese.
+
+**Località e Paese sono due filtri diversi.** La *località* si confronta con la sede scritta
+nell'annuncio ("Milano" tiene fuori Torino); il *Paese* con il paese dell'offerta, quando la
+fonte lo dichiara. Il Paese vale anche da solo: con località vuota e `IT` restano dentro tutte
+le città italiane e ne resta fuori Madrid. Le offerte che il paese non lo dichiarano passano e
+vengono giudicate sul testo della sede — meglio una in più da scartare a mano che una buona
+buttata via su un'informazione assente. Le posizioni **da remoto** saltano entrambi i
+controlli finché la spunta *«accetto posizioni da remoto»* è attiva: è quello che la rende
+utile, ed è anche il motivo per cui ogni tanto compare una città estera.

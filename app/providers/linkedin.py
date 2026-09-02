@@ -29,6 +29,7 @@ from urllib.parse import parse_qs, urlparse
 
 import httpx
 
+from ..paesi import codice_dalla_sede
 from .base import (
     BaseProvider,
     JobPosting,
@@ -204,13 +205,7 @@ def _stipendio(testo: str) -> tuple[float | None, float | None, str]:
 
 
 def _sede(testo: str) -> tuple[str, str]:
-    """Citta' e regione da "Milano, Lombardia, Italia".
-
-    Il paese non viene tradotto in codice: resta dentro il testo della sede,
-    dove il filtro di pertinenza lo confronta gia' con la localita' cercata.
-    Indovinare un codice a due lettere da un nome scritto in due lingue diverse
-    aggiungerebbe solo un modo nuovo di sbagliare.
-    """
+    """Citta' e regione da "Milano, Lombardia, Italia"."""
     pezzi = [p.strip() for p in (testo or "").split(",") if p.strip()]
     if len(pezzi) < 2:
         return "", ""
@@ -586,6 +581,11 @@ class LinkedInProvider(BaseProvider):
             location=sede,
             city=citta,
             region=regione,
+            # Il paese si ricava dall'ultimo pezzo della sede, che e' dove
+            # LinkedIn lo scrive. Serve al filtro di pertinenza: senza, una
+            # ricerca "tutta Italia" non ha modo di sapere che "Madrid,
+            # Comunidad de Madrid, Spagna" e' fuori.
+            country=codice_dalla_sede(sede),
             remote=looks_remote(titolo, sede),
             url=url,
             apply_url=url,

@@ -45,8 +45,21 @@ def dispatch(candidates: list[dict[str, Any]]) -> dict[str, Any]:
     email_on = db.get_setting_bool("notify_email_enabled", False)
     desktop_on = db.get_setting_bool("notify_desktop_enabled", True)
 
+    # Ogni ricerca puo' avere la sua soglia, e vince su quella generale per le
+    # offerte che ha trovato lei. Era un campo che si compilava dalla scheda
+    # della ricerca, che veniva salvato, che l'interfaccia mostrava - e che non
+    # leggeva nessuno: metterlo a 99 non cambiava niente.
+    per_ricerca = {
+        r["id"]: r["min_match"]
+        for r in db.query("SELECT id, min_match FROM search WHERE min_match IS NOT NULL")
+    }
+
+    def soglia(candidato: dict[str, Any]) -> int:
+        propria = per_ricerca.get(candidato.get("search_id"))
+        return threshold if propria is None else propria
+
     eligible = sorted(
-        (c for c in candidates if c["score"] >= threshold),
+        (c for c in candidates if c["score"] >= soglia(c)),
         key=lambda c: c["score"],
         reverse=True,
     )
