@@ -18,12 +18,13 @@ const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
 const T = {
   it: {
     overview: "Riepilogo", jobs: "Offerte", history: "Storico", searches: "Ricerche",
-    sources: "Fonti", cv: "Curriculum", settings: "Impostazioni",
+    sources: "Fonti", dictionaries: "Dizionari", cv: "Curriculum", settings: "Impostazioni",
     subOverview: "Come sta andando la ricerca in questo momento.",
     subJobs: "Tutte le offerte raccolte dalle fonti, ordinate per compatibilità con il tuo profilo.",
     subHistory: "Le offerte a cui hai assegnato uno stato.",
     subSearches: "Le parole chiave che decidono quali offerte vengono archiviate.",
     subSources: "I portali che JobSeeker interroga a ogni ciclo.",
+    subDictionaries: "Liste di parole con un nome, da riusare su pi\u00f9 ricerche.",
     subCv: "Il profilo con cui vengono confrontate le offerte.",
     subSettings: "Frequenza dei controlli, notifiche e composizione del punteggio.",
     run: "Controlla ora", running: "Controllo…", toggleSidebar: "Comprimi la barra laterale",
@@ -49,7 +50,7 @@ const T = {
     fName: "Nome della ricerca", fKeywords: "Parole chiave (separate da virgola)",
     fExclude: "Parole da escludere", fLocation: "Località", fCountry: "Paese", fThreshold: "Soglia specifica",
     phName: "Es. Biotecnologo Lombardia", phKeywords: "Biotecnologo, biologia molecolare, laboratorio",
-    phExclude: "Stage non retribuito, commerciale", phLocation: "Milano",
+    phExclude: "Stage non retribuito, commerciale", phLocation: "Milano, oppure Italia",
     phThreshold: "0 - 100  (vuoto = soglia globale)",
     tRemote: "Accetto posizioni da remoto", tLocFilter: "Scarta le offerte fuori dalla località indicata",
     saveSearch: "Salva ricerca", anywhere: "Ovunque", remoteOk: "Remoto accettato", threshold: "Soglia",
@@ -223,6 +224,32 @@ const T = {
     urlFirst: "Incolla un indirizzo", back: "Collegamento al server ripristinato",
     bootFailed: "Avvio non riuscito", providersRun: "fonti interrogate", newJobs: "offerte nuove",
     byEmail: "per email", onTelegram: "su Telegram",
+    kwModeWarn: "descrive come si lavora, non che lavoro \u00e8: tiene dentro qualunque annuncio che la contenga, di qualsiasi mestiere. Per quello ci sono gli interruttori qui sotto.",
+    kwModeWarnMany: "descrivono come si lavora, non che lavoro \u00e8: tengono dentro qualunque annuncio che le contenga, di qualsiasi mestiere. Per quello ci sono gli interruttori qui sotto.",
+    newDict: "Nuovo dizionario", editDict: "Modifica dizionario",
+    dictName: "Nome della lista", dictNamePh: "Linguaggi che non voglio",
+    dictKind: "A cosa serve",
+    dictKindKeywords: "Parole chiave", dictKindExclude: "Esclusioni",
+    dictWords: "Parole", dictWordsPh: "php, wordpress, drupal",
+    dictHint: "Le parole di un dizionario si sommano a quelle scritte nella ricerca che lo usa.",
+    dictKindKwHint: "Un annuncio viene tenuto se contiene almeno una di queste parole.",
+    dictKindExHint: "Un annuncio viene scartato se contiene una di queste parole.",
+    saveDict: "Salva il dizionario", dictCreated: "Dizionario creato",
+    dictUpdated: "Dizionario aggiornato", dictDeleted: "Dizionario eliminato",
+    confirmDelDict: "Eliminare il dizionario?",
+    confirmDelDictBody: "Le ricerche che lo usavano restano, senza di lui. Le parole scritte nei loro campi non si toccano.",
+    emptyDictsTitle: "Nessun dizionario",
+    emptyDictsBody: "Una lista di parole con un nome - le tecnologie che non vuoi, i titoli che ti interessano - da collegare alle ricerche invece di riscriverla in ognuna.",
+    dictWordsN: "parole", dictWordsN1: "parola",
+    dictUsedBy: "ricerche", dictUsedBy1: "ricerca", dictUnused: "non collegato a nessuna ricerca",
+    dictNone: "Nessuno",
+    fDictKeywords: "Dizionario di parole chiave", fDictExclude: "Dizionario di esclusioni",
+    hintLocation: "Scrivi anche il paese (\u00abMilano, Italia\u00bb) se vuoi che il filtro scarti le offerte da remoto di altri paesi.",
+    noDictsYet: "Nessun dizionario di questo tipo",
+    variants: "Varianti di", askAi: "Chiedi all\u2019IA", askingAi: "Sto chiedendo\u2026",
+    variantsNone: "Nessuna variante meccanica",
+    variantsAllTaken: "Le hai prese tutte", variantsAiNone: "Il modello non ha proposto niente di nuovo",
+    fromSearches: "dalle ricerche:",
     wipeJobs: "Cancella le offerte",
     wipeJobsAsk: "Cancellare le offerte raccolte?",
     wipeJobsBody: "Spariscono tutte le offerte in archivio tranne quelle a cui hai dato uno stato \u2014 salvate, candidato, colloquio, offerta, rifiutate, scartate: quelle restano, insieme a quello che il motore ha imparato da loro. Le fonti ritroveranno le altre al prossimo controllo, se sono ancora pubblicate.",
@@ -249,12 +276,13 @@ const T = {
   },
   en: {
     overview: "Overview", jobs: "Jobs", history: "Pipeline", searches: "Searches",
-    sources: "Sources", cv: "Profile", settings: "Settings",
+    sources: "Sources", dictionaries: "Dictionaries", cv: "Profile", settings: "Settings",
     subOverview: "How the search is doing right now.",
     subJobs: "Every posting collected from your sources, ranked by match with your profile.",
     subHistory: "Postings you have given a status to.",
     subSearches: "The keywords that decide which postings get stored.",
     subSources: "The boards JobSeeker queries on every cycle.",
+    subDictionaries: "Named word lists you can reuse across searches.",
     subCv: "The profile every posting is compared against.",
     subSettings: "Check frequency, notifications and score composition.",
     run: "Check now", running: "Checking…", toggleSidebar: "Collapse sidebar",
@@ -280,7 +308,7 @@ const T = {
     fName: "Search name", fKeywords: "Keywords (comma separated)",
     fExclude: "Excluded words", fLocation: "Location", fCountry: "Country", fThreshold: "Custom threshold",
     phName: "E.g. Biotechnologist Lombardy", phKeywords: "Biotechnologist, molecular biology, lab",
-    phExclude: "Unpaid internship, sales", phLocation: "Milan",
+    phExclude: "Unpaid internship, sales", phLocation: "Milan, or Italy",
     phThreshold: "0 - 100  (empty = global threshold)",
     tRemote: "Accept remote positions", tLocFilter: "Drop postings outside the given location",
     saveSearch: "Save search", anywhere: "Anywhere", remoteOk: "Remote accepted", threshold: "Threshold",
@@ -454,6 +482,32 @@ const T = {
     urlFirst: "Paste a URL", back: "Connection to the server restored",
     bootFailed: "Startup failed", providersRun: "sources queried", newJobs: "new postings",
     byEmail: "by email", onTelegram: "on Telegram",
+    kwModeWarn: "describes how you work, not what the job is: it keeps any posting that contains it, whatever the trade. That is what the switches below are for.",
+    kwModeWarnMany: "describe how you work, not what the job is: they keep any posting that contains them, whatever the trade. That is what the switches below are for.",
+    newDict: "New dictionary", editDict: "Edit dictionary",
+    dictName: "List name", dictNamePh: "Languages I do not want",
+    dictKind: "What it is for",
+    dictKindKeywords: "Keywords", dictKindExclude: "Exclusions",
+    dictWords: "Words", dictWordsPh: "php, wordpress, drupal",
+    dictHint: "A dictionary's words are added to those typed in the search that uses it.",
+    dictKindKwHint: "A posting is kept when it contains at least one of these words.",
+    dictKindExHint: "A posting is dropped when it contains one of these words.",
+    saveDict: "Save dictionary", dictCreated: "Dictionary created",
+    dictUpdated: "Dictionary updated", dictDeleted: "Dictionary deleted",
+    confirmDelDict: "Delete the dictionary?",
+    confirmDelDictBody: "The searches that used it stay, without it. The words typed in their own fields are untouched.",
+    emptyDictsTitle: "No dictionaries",
+    emptyDictsBody: "A named list of words - the technologies you do not want, the titles you care about - to attach to searches instead of retyping it in each one.",
+    dictWordsN: "words", dictWordsN1: "word",
+    dictUsedBy: "searches", dictUsedBy1: "search", dictUnused: "not attached to any search",
+    dictNone: "None",
+    fDictKeywords: "Keyword dictionary", fDictExclude: "Exclusion dictionary",
+    hintLocation: "Add the country too (\u201cMilan, Italy\u201d) if you want the filter to drop remote postings from other countries.",
+    noDictsYet: "No dictionary of this kind",
+    variants: "Variants of", askAi: "Ask the AI", askingAi: "Asking\u2026",
+    variantsNone: "No mechanical variant",
+    variantsAllTaken: "You have taken them all", variantsAiNone: "The model proposed nothing new",
+    fromSearches: "from the searches:",
     wipeJobs: "Delete the postings",
     wipeJobsAsk: "Delete the collected postings?",
     wipeJobsBody: "Every posting in the archive goes, except the ones you gave a status \u2014 saved, applied, interview, offer, rejected, discarded: those stay, along with what the engine learned from them. The sources will find the others again on the next check, if they are still published.",
@@ -487,6 +541,7 @@ const ICONS = {
   searches: "M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14M16.5 16.5L21 21",
   sources: "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18M3 12h18M12 3c2.5 2.5 3.8 5.6 3.8 9S14.5 18.5 12 21M12 3C9.5 5.5 8.2 8.6 8.2 12s1.3 6.5 3.8 9",
   cv: "M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8zM14 3v5h5M9 13h6M9 17h4",
+  dictionaries: "M12 6.6C10.6 5.5 8.6 5 6 5H4.2v12.6H6c2.6 0 4.6.5 6 1.6M12 6.6C13.4 5.5 15.4 5 18 5h1.8v12.6H18c-2.6 0-4.6.5-6 1.6M12 6.6v14.2",
   settings: "M4 7h10M18 7h2M4 17h4M12 17h8M14 4v6M8 14v6",
   spark: "M12 3l2.2 5.3L20 9.6l-4.2 3.8 1.1 5.6L12 16.3 7.1 19l1.1-5.6L4 9.6l5.8-1.3z",
   eye: "M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12ZM12 9.2a2.8 2.8 0 1 0 0 5.6 2.8 2.8 0 0 0 0-5.6z",
@@ -503,7 +558,7 @@ const ICONS = {
   external: "M8 5h11v11M19 5L6 18",
 };
 
-const VIEWS = ["overview", "jobs", "history", "searches", "sources", "cv", "settings"];
+const VIEWS = ["overview", "jobs", "history", "searches", "dictionaries", "sources", "cv", "settings"];
 const STATUSES = ["saved", "applied", "interview", "offer", "rejected", "discarded"];
 // Stati per cui ha senso chiedere il motivo: sono quelli da cui l'app impara.
 const STATI_NEGATIVI = ["discarded", "rejected"];
@@ -552,6 +607,7 @@ const state = {
   filters: { q: "", city: "", minScore: 0, provider: "", sort: "score" },
   providers: [],
   searches: [],
+  dictionaries: [],
   catalogue: [],
   cvs: [],
   skills: [],
@@ -853,8 +909,12 @@ function apriMenuInPosto(trigger, id) {
 }
 
 /* Menu a tendina proprio: markup unico, comportamento in delegazione. */
-function dropdown(id, label, options, { up = false, minWidth } = {}) {
-  _vociMenu[id] = { options, up };
+function dropdown(id, label, options, { up = false, minWidth, scelta } = {}) {
+  // `scelta` e' la funzione da chiamare quando si sceglie una voce. Prima ogni
+  // menu andava aggiunto a mano al lungo if/else del gestore dei clic; i menu
+  // che vivono dentro una modale hanno bisogno di richiamare qualcosa che
+  // esiste solo mentre la modale e' aperta, e la catena di if non ci arriva.
+  _vociMenu[id] = { options, up, scelta };
   // Il menu non viene mai scritto qui dentro: lo crea `apriMenuInPosto` in un
   // livello sopra la pagina. Qui resta solo il pulsante.
   return `<div class="dd">
@@ -1381,22 +1441,362 @@ async function loadApplications() {
 
 /* --------------------------------------------------------------- ricerche */
 
+/* ---------------------------------------------------------- varianti */
+
+/* Le varianti che si possono ricavare da una parola senza sapere niente della
+   lingua: dove sta il trattino, se e' singolare o plurale, se ha accenti.
+   Sono quelle che si scordano sempre - chi scrive "full-stack" non trova gli
+   annunci che dicono "fullstack" - e non c'e' bisogno di un modello per
+   trovarle. Per le altre ("dev" al posto di "developer") c'e' il pulsante che
+   lo chiede all'IA. */
+function variantiParola(parola) {
+  const p = String(parola || "").trim().toLowerCase();
+  if (p.length < 3) return [];
+  const fuori = [];
+  const agg = (x) => {
+    const v = String(x).trim().replace(/\s+/g, " ");
+    if (v.length > 2 && v !== p && !fuori.includes(v)) fuori.push(v);
+  };
+
+  // Come si scrive una parola composta: staccata, con il trattino, attaccata.
+  const staccata = p.replace(/[-_]+/g, " ");
+  agg(staccata);
+  agg(staccata.replace(/ /g, "-"));
+  agg(staccata.replace(/ /g, ""));
+
+  // Senza accenti: chi cerca "perito" non deve perdere "perit\u00e0" e viceversa.
+  const senzaAccenti = p.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  agg(senzaAccenti);
+
+  // Singolare e plurale, sull'ultima parola del gruppo. Sono regole grossolane
+  // - due lingue, nessun dizionario - ma qui sbagliare non costa niente: le
+  // varianti si propongono, non si aggiungono da sole.
+  const pezzi = staccata.split(" ");
+  const ultima = pezzi[pezzi.length - 1] || "";
+  const conUltima = (nuova) => agg([...pezzi.slice(0, -1), nuova].join(" "));
+  const REGOLE = [
+    [/co$/, "chi"], [/ca$/, "che"], [/go$/, "ghi"], [/ga$/, "ghe"],
+    [/o$/, "i"], [/a$/, "e"], [/e$/, "i"],
+    [/i$/, "o"], [/hi$/, "co"], [/he$/, "ca"],
+    [/ies$/, "y"], [/es$/, ""], [/s$/, ""],
+    [/y$/, "ies"],
+  ];
+  for (const [cerca, metti] of REGOLE) {
+    if (!cerca.test(ultima)) continue;
+    const cambiata = ultima.replace(cerca, metti);
+    // Una sigla non ha plurale: da "gc-ms" veniva fuori "gc m", che non e' una
+    // parola. Sotto le tre lettere la regola non vale piu' niente.
+    if (cambiata.length >= 3) conUltima(cambiata);
+  }
+  if (!/s$/.test(ultima) && ultima.length >= 3) conUltima(ultima + "s");
+
+  return fuori.slice(0, 8);
+}
+
+/* Le varianti chieste al modello, tenute da parte per parola: il pannello si
+   ridisegna a ogni tasto, e senza memoria sparivano un attimo dopo. */
+const _varianti_ia = {};
+
+/* L'ultima voce di un campo a virgole e' quella che si sta scrivendo: le
+   varianti si propongono su quella. */
+function ultimaVoce(testo) {
+  const pezzi = String(testo || "").split(",");
+  return (pezzi[pezzi.length - 1] || "").trim();
+}
+
+/* Attacca il suggeritore di varianti a un campo di parole separate da virgola.
+   `sincronizza` e' quello che il modulo fa normalmente quando il campo cambia:
+   aggiungere una parola con un clic deve valere come averla scritta. */
+function suggeritoreVarianti(input, dove, sincronizza) {
+  // La parola su cui si sta ragionando. La decide chi scrive, non i clic: dopo
+  // aver aggiunto "fullstack" la parola di partenza resta "full-stack", cosi'
+  // l'elenco - comprese le forme arrivate dal modello, che sono costate una
+  // domanda - resta quello di prima meno le voci gia' prese. Prima si guardava
+  // l'ultima voce del campo, che dopo un clic era la variante appena aggiunta:
+  // le proposte del modello sparivano e restavano solo quelle meccaniche della
+  // parola nuova.
+  let base = "";
+
+  const aggiungi = (parola) => {
+    const gia = splitList(input.value || "").map((x) => x.toLowerCase());
+    if (!gia.includes(parola.toLowerCase())) {
+      const testo = String(input.value || "").replace(/[,\s]+$/, "");
+      input.value = testo ? `${testo}, ${parola}` : parola;
+    }
+    sincronizza();
+    input.focus();
+    disegna();
+  };
+
+  const disegna = () => {
+    if (base.length < 3) { dove.innerHTML = ""; return; }
+    const gia = splitList(input.value || "").map((x) => x.toLowerCase());
+    const meccaniche = variantiParola(base);
+    const dallIa = (_varianti_ia[base.toLowerCase()] || []);
+    const proposte = [...meccaniche, ...dallIa.filter((x) => !meccaniche.includes(x))]
+      .filter((x) => !gia.includes(x.toLowerCase()));
+    const chieste = base.toLowerCase() in _varianti_ia;
+    dove.innerHTML = `
+      <div class="varianti">
+        <span class="hint">${t("variants")} \u00ab${esc(base)}\u00bb</span>
+        <div class="chips">
+          ${proposte.length
+            ? proposte.map((v) => `<button class="chip scelta" type="button" data-variante="${esc(v)}">+ ${esc(v)}</button>`).join("")
+            : `<span class="hint">${t(chieste ? "variantsAllTaken" : "variantsNone")}</span>`}
+          ${chieste ? "" : `<button class="btn small" type="button" data-chiedi-ia>${svg(ICONS.spark, 12)} ${t("askAi")}</button>`}
+        </div>
+      </div>`;
+    dove.querySelectorAll("[data-variante]").forEach((b) => {
+      b.onclick = () => aggiungi(b.dataset.variante);
+    });
+    const ia = dove.querySelector("[data-chiedi-ia]");
+    if (ia) ia.onclick = async () => {
+      const parola = base;
+      ia.disabled = true;
+      ia.textContent = t("askingAi");
+      try {
+        const r = await api("/api/words/variants", { method: "POST", body: { word: parola } });
+        const nuove = (r.variants || []).filter((x) => x && x.toLowerCase() !== parola.toLowerCase());
+        _varianti_ia[parola.toLowerCase()] = nuove;
+        if (!nuove.length) toast(t("variantsAiNone"));
+        // Solo se chi scrive non ha cambiato parola nel frattempo: la risposta
+        // arriva dopo qualche secondo, e ridisegnare sopra la parola nuova
+        // mostrerebbe le varianti di quella di prima.
+        if (base === parola) disegna();
+      } catch (e) {
+        toast(e.message, "bad");
+        ia.disabled = false;
+        ia.textContent = t("askAi");
+      }
+    };
+  };
+
+  // Non si disegna niente all'apertura: aprire una ricerca gia' scritta per
+  // cambiarle la soglia non deve riempirsi di proposte sulle parole di prima.
+  // Le varianti compaiono quando si scrive.
+  input.addEventListener("input", () => {
+    base = ultimaVoce(input.value);
+    disegna();
+  });
+}
+
+/* --------------------------------------------------------- dizionari */
+
+const TIPI_DIZIONARIO = ["keywords", "exclude"];
+const CAMPO_DIZIONARIO = { keywords: "dict_keywords_id", exclude: "dict_exclude_id" };
+
+async function loadDictionaries() {
+  // Serve anche l'elenco delle ricerche: accanto a ogni dizionario si dice da
+  // quante e' usato, ed e' l'informazione che fa capire se cambiarlo e' una
+  // modifica innocua.
+  const [dizionari, ricerche] = await Promise.all([
+    api("/api/dictionaries"), api("/api/searches"),
+  ]);
+  state.dictionaries = dizionari;
+  state.searches = ricerche;
+  renderDictionaries();
+}
+
+function dizionariDi(kind) {
+  return state.dictionaries.filter((d) => d.kind === kind);
+}
+
+function ricercheConDizionario(d) {
+  const campo = CAMPO_DIZIONARIO[d.kind];
+  return state.searches.filter((s) => s[campo] === d.id);
+}
+
+function schedaDizionario(d, i) {
+  const usato = ricercheConDizionario(d).length;
+  const parole = d.words || [];
+  return `<article class="card search-card" style="animation-delay:${i * 55}ms">
+    <div class="search-card-head">
+      <h3>${esc(d.name)}</h3>
+      <span class="pill ${d.kind === "keywords" ? "info" : "discarded"}">${
+        t(d.kind === "keywords" ? "dictKindKeywords" : "dictKindExclude")}</span>
+    </div>
+    <div class="job-sub">${esc([
+      `${parole.length} ${t(parole.length === 1 ? "dictWordsN1" : "dictWordsN")}`,
+      usato ? `${usato} ${t(usato === 1 ? "dictUsedBy1" : "dictUsedBy")}` : t("dictUnused"),
+    ].join("  \u00b7  "))}</div>
+    <div class="chips">
+      ${parole.slice(0, 14).map((w) => `<span class="chip ${d.kind === "keywords" ? "info" : "miss"}">${
+        d.kind === "keywords" ? "" : "\u2212 "}${esc(w)}</span>`).join("")}
+      ${parole.length > 14 ? `<span class="chip">+${parole.length - 14}</span>` : ""}
+    </div>
+    <div class="card-actions">
+      <button class="btn small" type="button" data-edit-dict="${d.id}">${t("edit")}</button>
+      <button class="btn small danger" type="button" data-del-dict="${d.id}">${t("delete")}</button>
+    </div>
+  </article>`;
+}
+
+function renderDictionaries() {
+  $("#view").innerHTML = `
+    <div class="stack" style="gap:18px">
+      <div class="riga-azioni">
+        <button class="btn primary" type="button" id="new-dict">${t("newDict")}</button>
+        <span class="lead" style="margin:0">${t("dictHint")}</span>
+      </div>
+      ${state.dictionaries.length ? TIPI_DIZIONARIO.map((kind) => {
+        const suoi = dizionariDi(kind);
+        if (!suoi.length) return "";
+        return `<section>
+          <h2 class="section-title">${t(kind === "keywords" ? "dictKindKeywords" : "dictKindExclude")}</h2>
+          <div class="griglia-carte">${suoi.map(schedaDizionario).join("")}</div>
+        </section>`;
+      }).join("") : `<div class="card empty">
+        <div class="glyph">${svg(ICONS.dictionaries, 22, 'stroke-width="1.6"')}</div>
+        <b>${t("emptyDictsTitle")}</b><p>${t("emptyDictsBody")}</p></div>`}
+    </div>`;
+
+  $("#new-dict").onclick = () => apriModaleDizionario();
+  $$("[data-edit-dict]").forEach((b) => b.onclick = () => {
+    const d = state.dictionaries.find((x) => x.id === +b.dataset.editDict);
+    if (d) apriModaleDizionario(d);
+  });
+  $$("[data-del-dict]").forEach((b) => b.onclick = async () => {
+    const d = state.dictionaries.find((x) => x.id === +b.dataset.delDict);
+    const usato = d ? ricercheConDizionario(d) : [];
+    if (!await chiediConferma({
+      titolo: t("confirmDelDict"),
+      testo: (d ? `\u00ab${d.name}\u00bb \u2014 ` : "")
+        + (usato.length ? `${usato.map((s) => s.name).join(", ")}. ` : "")
+        + t("confirmDelDictBody"),
+      conferma: t("confirmDelete"),
+    })) return;
+    await api(`/api/dictionaries/${b.dataset.delDict}`, { method: "DELETE" });
+    toast(t("dictDeleted"));
+    loadDictionaries();
+  });
+}
+
+/* La scheda di un dizionario. In modale perche' e' una cosa che si apre, si
+   compila e si chiude: un pannello sempre presente accanto all'elenco starebbe
+   vuoto per la maggior parte del tempo. */
+function apriModaleDizionario(esistente = null) {
+  const f = esistente
+    ? { id: esistente.id, name: esistente.name, kind: esistente.kind,
+        words: (esistente.words || []).join(", ") }
+    : { name: "", kind: "exclude", words: "" };
+
+  const draw = () => {
+    $("#overlay").innerHTML = `
+      <div class="modal-scrim">
+        <div class="backdrop" data-close-modal></div>
+        <div class="modal">
+          <div class="modal-head">
+            <span class="cat-mark" style="background:var(--ac5);color:var(--ac-ink)">${
+              svg(ICONS.dictionaries, 15, 'stroke-width="1.6"')}</span>
+            <div>
+              <h2>${f.id ? t("editDict") : t("newDict")}</h2>
+              <p>${t("dictHint")}</p>
+            </div>
+            <button class="round-x" type="button" data-close-modal>${svg(ICONS.cross, 13, 'stroke-width="2.6"')}</button>
+          </div>
+          <div class="modal-body">
+            <label class="field"><span>${t("dictName")}</span>
+              <input class="input" id="df-name" value="${esc(f.name)}" placeholder="${t("dictNamePh")}"></label>
+            <div class="field"><span>${t("dictKind")}</span>
+              <div class="seg">
+                ${TIPI_DIZIONARIO.map((k) => `<button type="button" data-df-kind="${k}"
+                  class="${f.kind === k ? "on" : ""}">${
+                  t(k === "keywords" ? "dictKindKeywords" : "dictKindExclude")}</button>`).join("")}
+              </div>
+              <span class="hint" id="df-kind-hint">${t(f.kind === "keywords" ? "dictKindKwHint" : "dictKindExHint")}</span>
+            </div>
+            <label class="field"><span>${t("dictWords")}</span>
+              <input class="input" id="df-words" value="${esc(f.words)}" placeholder="${t("dictWordsPh")}"></label>
+            <div id="df-varianti"></div>
+          </div>
+          <div class="modal-foot">
+            <button class="btn" type="button" data-close-modal>${t("modalCancel")}</button>
+            <button class="btn primary" type="button" id="df-save">${t("saveDict")}</button>
+          </div>
+        </div>
+      </div>`;
+
+    const nome = $("#df-name");
+    nome.oninput = () => { f.name = nome.value; };
+    const parole = $("#df-words");
+    limitaEtichette(parole);
+    parole.oninput = () => { f.words = parole.value; };
+    suggeritoreVarianti(parole, $("#df-varianti"), () => { f.words = parole.value; });
+    $$("[data-df-kind]").forEach((b) => b.onclick = () => {
+      f.kind = b.dataset.dfKind;
+      // Si cambia solo quello che cambia: l'interruttore acceso e la frase che
+      // lo spiega. Prima qui si ridisegnava tutta la scheda, e premere uno dei
+      // due tipi sembrava ricaricare la pagina - il campo perdeva il cursore e
+      // tutto sfarfallava per una riga di testo.
+      $$("[data-df-kind]").forEach((x) => x.classList.toggle("on", x === b));
+      const spiega = $("#df-kind-hint");
+      if (spiega) spiega.textContent = t(f.kind === "keywords" ? "dictKindKwHint" : "dictKindExHint");
+    });
+    $("#df-save").onclick = async () => {
+      if (!(f.name || "").trim()) { toast(t("nameFirst"), "bad"); return; }
+      const body = { name: f.name.trim(), kind: f.kind, words: splitList(f.words || "") };
+      try {
+        await api(f.id ? `/api/dictionaries/${f.id}` : "/api/dictionaries",
+                  { method: f.id ? "PUT" : "POST", body });
+        toast(f.id ? t("dictUpdated") : t("dictCreated"));
+        closeOverlay();
+        loadDictionaries();
+      } catch (e) { toast(e.message, "bad"); }
+    };
+    if (!f.id) nome.focus();
+  };
+
+  state.overlayRedraw = draw;
+  draw();
+}
+
 async function loadSearches() {
-  state.searches = await api("/api/searches");
+  const [ricerche, dizionari] = await Promise.all([
+    api("/api/searches"), api("/api/dictionaries"),
+  ]);
+  state.searches = ricerche;
+  state.dictionaries = dizionari;
   renderSearches();
 }
 
-function renderSearches() {
-  const f = state.form.search || {};
-  const fields = [
-    ["name", "fName", "phName"], ["keywords", "fKeywords", "phKeywords"],
-    ["exclude", "fExclude", "phExclude"], ["location", "fLocation", "phLocation"],
-    ["country", "fCountry", null], ["min", "fThreshold", "phThreshold"],
-  ];
+/* Parole che dicono *come* si lavora, non *che cosa* si fa. Fra le parole
+   chiave sono una trappola: "remote" sta nel titolo di qualunque annuncio da
+   remoto - "Remote Audio Content Annotation" compreso - e il filtro tiene
+   un'offerta se contiene almeno una parola chiave. Una sola parola cosi'
+   annulla tutte le altre. L'interruttore "Accetto posizioni da remoto" fa la
+   cosa giusta senza allargare la rete. */
+const PAROLE_MODALITA = [
+  "remote", "remoto", "da remoto", "full remote", "fully remote", "smart working",
+  "telelavoro", "work from home", "wfh", "home office", "lavoro agile",
+  "ibrido", "hybrid", "on site", "on-site", "in presenza", "in sede",
+];
 
+function paroleModalita(testo) {
+  const scritte = splitList(testo || "").map((x) => x.toLowerCase());
+  return scritte.filter((x) => PAROLE_MODALITA.includes(x));
+}
+
+function avvisoModalitaHtml(testo) {
+  const trovate = paroleModalita(testo);
+  if (!trovate.length) return "";
+  const elenco = trovate.map((x) => `«${esc(x)}»`).join(", ");
+  return `<span class="hint avviso-modalita">${elenco} ${
+    trovate.length === 1 ? t("kwModeWarn") : t("kwModeWarnMany")}</span>`;
+}
+
+function nomeDizionario(id) {
+  const d = state.dictionaries.find((x) => x.id === id);
+  return d ? d.name : "";
+}
+
+function renderSearches() {
   $("#view").innerHTML = `
-    <div class="two-col">
-      <div class="stack" style="gap:11px">
+    <div class="stack" style="gap:18px">
+      <div class="riga-azioni">
+        <button class="btn primary" type="button" id="new-search">${t("newSearch")}</button>
+        <span class="lead" style="margin:0">${t("searchHint")}</span>
+      </div>
+      <div class="griglia-carte">
         ${state.searches.length ? state.searches.map((s, i) => `
           <article class="card search-card" style="animation-delay:${i * 55}ms">
             <div class="search-card-head">
@@ -1411,73 +1811,32 @@ function renderSearches() {
             ].filter(Boolean).join("  ·  "))}</div>
             <div class="chips">
               ${(s.keywords || []).map((k) => `<span class="chip info">${esc(k)}</span>`).join("")}
-              ${(s.exclude || []).map((k) => `<span class="chip miss">− ${esc(k)}</span>`).join("")}
+              ${(s.exclude || []).map((k) => `<span class="chip miss">\u2212 ${esc(k)}</span>`).join("")}
+              ${[["dict_keywords_id", "info"], ["dict_exclude_id", "miss"]].map(([campo, tinta]) => {
+                const nome = nomeDizionario(s[campo]);
+                // Il nome del dizionario, non le sue parole: quelle stanno
+                // nella sua sezione, e ripeterle qui riempirebbe la scheda con
+                // una lista che non e' di questa ricerca.
+                return nome ? `<span class="chip ${tinta} dict">${svg(ICONS.dictionaries, 11, 'stroke-width="1.7"')} ${esc(nome)}</span>` : "";
+              }).join("")}
             </div>
             <div class="card-actions">
               <button class="btn small" type="button" data-edit-search="${s.id}">${t("edit")}</button>
               <button class="btn small danger" type="button" data-del-search="${s.id}">${t("delete")}</button>
             </div>
           </article>`).join("")
-        : `<div class="card empty">
+        : `<div class="card empty" style="grid-column:1/-1">
             <div class="glyph">${svg(ICONS.searches, 22, 'stroke-width="1.6"')}</div>
             <b>${t("emptySearchesTitle")}</b><p>${t("emptySearchesBody")}</p></div>`}
       </div>
 
-      <section class="panel form-panel">
-        <h2>${f.id ? t("editSearch") : t("newSearch")}</h2>
-        <p class="lead" style="margin:0">${t("searchHint")}</p>
-        ${fields.map(([k, label, ph]) => `<label class="field">
-          <span>${t(label)}</span>
-          <input class="input" data-sf="${k}" value="${esc(f[k] ?? (k === "country" ? "it" : ""))}"
-            placeholder="${ph ? t(ph) : ""}">
-        </label>`).join("")}
-        <div class="form-toggles">
-          ${[["remote_ok", "tRemote"], ["location_filter", "tLocFilter"]].map(([k, label]) => {
-            const on = f[k] !== false;
-            return `<div class="form-toggle">
-              <button class="switch sm ${on ? "on" : ""}" type="button" data-sf-toggle="${k}"><i></i></button>
-              <span>${t(label)}</span></div>`;
-          }).join("")}
-        </div>
-        <div style="display:flex;gap:8px">
-          <button class="btn primary" type="button" id="save-search" style="flex:1;justify-content:center">${t("saveSearch")}</button>
-          ${f.id ? `<button class="btn" type="button" id="cancel-search">${t("cancel")}</button>` : ""}
-        </div>
-      </section>
     </div>`;
 
-  $$("[data-sf]").forEach((i) => {
-    // La soglia specifica e' l'unico campo numerico del modulo: le altre voci
-    // sono parole chiave, localita' e codice del paese.
-    if (i.dataset.sf === "min") soloNumeri(i);
-    // I due campi che contengono etichette separate da virgola.
-    if (i.dataset.sf === "keywords" || i.dataset.sf === "exclude") limitaEtichette(i);
-    i.oninput = () => {
-      state.form.search = { ...(state.form.search || {}), [i.dataset.sf]: i.value };
-    };
-  });
-  $$("[data-sf-toggle]").forEach((b) => b.onclick = () => {
-    const k = b.dataset.sfToggle;
-    const cur = (state.form.search || {})[k] !== false;
-    state.form.search = { ...(state.form.search || {}), [k]: !cur };
-    b.classList.toggle("on", !cur);
-  });
-
-  $("#save-search").onclick = saveSearch;
-  const cancel = $("#cancel-search");
-  if (cancel) cancel.onclick = () => { state.form.search = {}; renderSearches(); };
+  $("#new-search").onclick = () => apriModaleRicerca();
 
   $$("[data-edit-search]").forEach((b) => b.onclick = () => {
     const s = state.searches.find((x) => x.id === +b.dataset.editSearch);
-    if (!s) return;
-    state.form.search = {
-      id: s.id, name: s.name, keywords: (s.keywords || []).join(", "),
-      exclude: (s.exclude || []).join(", "), location: s.location || "",
-      country: s.country || "it", min: s.min_match ?? "",
-      remote_ok: !!s.remote_ok, location_filter: !!s.location_filter,
-    };
-    renderSearches();
-    $("#main").scrollTo({ top: 0, behavior: "smooth" });
+    if (s) apriModaleRicerca(s);
   });
 
   $$("[data-del-search]").forEach((b) => b.onclick = async () => {
@@ -1500,30 +1859,181 @@ function renderSearches() {
         name: s.name, keywords: s.keywords || [], exclude: s.exclude || [],
         location: s.location, country: s.country, remote_ok: !!s.remote_ok,
         location_filter: !!s.location_filter, min_match: s.min_match, enabled: !s.enabled,
+        // La PUT riscrive la riga intera: senza questi due, accendere e
+        // spegnere una ricerca le staccava i dizionari.
+        dict_keywords_id: s.dict_keywords_id ?? null,
+        dict_exclude_id: s.dict_exclude_id ?? null,
       },
     });
     loadSearches();
   });
 }
 
-async function saveSearch() {
-  const f = state.form.search || {};
+/* La scheda di una ricerca. Prima era un pannello fisso accanto all'elenco:
+   con sei campi e due interruttori occupava mezza pagina anche quando non si
+   stava modificando niente, e su schermo stretto finiva sotto l'elenco, dove
+   premere "Modifica" non sembrava fare nulla. */
+function apriModaleRicerca(esistente = null) {
+  const f = esistente
+    ? { id: esistente.id, name: esistente.name,
+        keywords: (esistente.keywords || []).join(", "),
+        exclude: (esistente.exclude || []).join(", "),
+        location: esistente.location || "",
+        min: esistente.min_match ?? "",
+        remote_ok: !!esistente.remote_ok, location_filter: !!esistente.location_filter,
+        dict_keywords_id: esistente.dict_keywords_id ?? null,
+        dict_exclude_id: esistente.dict_exclude_id ?? null }
+    : { name: "", keywords: "", exclude: "", location: "", min: "",
+        remote_ok: true, location_filter: true,
+        dict_keywords_id: null, dict_exclude_id: null };
+
+  // I due campi di parole e, subito sotto ciascuno, il dizionario dello stesso
+  // tipo: sono la stessa cosa scritta in due posti - qui quello che vale solo
+  // per questa ricerca, nel dizionario quello che vale per tutte.
+  const vociDizionario = (kind) => {
+    const scelto = f[CAMPO_DIZIONARIO[kind]];
+    return [
+      { value: "", label: t("dictNone"), on: !scelto },
+      ...dizionariDi(kind).map((d) => ({
+        value: String(d.id),
+        label: `${d.name} \u00b7 ${(d.words || []).length}`,
+        on: scelto === d.id,
+      })),
+    ];
+  };
+
+  const campoDizionario = (kind) => {
+    const chiave = CAMPO_DIZIONARIO[kind];
+    if (!dizionariDi(kind).length) {
+      return `<span class="hint">${t("noDictsYet")}</span>`;
+    }
+    const id = `dd-${chiave}`;
+    return dropdown(id, nomeDizionario(f[chiave]) || t("dictNone"),
+                    vociDizionario(kind), { scelta: (valore) => {
+      f[chiave] = valore ? +valore : null;
+      // Cambia il nome sul pulsante e la spunta nell'elenco, non tutta la
+      // scheda: ridisegnarla per una tendina sembrava un ricaricamento della
+      // pagina.
+      const etichetta = $(`[data-dd="${id}"] span`);
+      if (etichetta) etichetta.textContent = nomeDizionario(f[chiave]) || t("dictNone");
+      _vociMenu[id].options = vociDizionario(kind);
+    } });
+  };
+
+  const draw = () => {
+    // Niente campo per il paese: si scrive nella localita' - "Milano, Italia"
+    // oppure solo "Italia" - e il server lo ricava da li'.
+    const campi = [
+      ["name", "fName", "phName"], ["location", "fLocation", "phLocation"],
+      ["min", "fThreshold", "phThreshold"],
+    ];
+    $("#overlay").innerHTML = `
+      <div class="modal-scrim">
+        <div class="backdrop" data-close-modal></div>
+        <div class="modal">
+          <div class="modal-head">
+            <span class="cat-mark" style="background:var(--ac5);color:var(--ac-ink)">${
+              svg(ICONS.searches, 15, 'stroke-width="1.8"')}</span>
+            <div>
+              <h2>${f.id ? t("editSearch") : t("newSearch")}</h2>
+              <p>${t("searchHint")}</p>
+            </div>
+            <button class="round-x" type="button" data-close-modal>${svg(ICONS.cross, 13, 'stroke-width="2.6"')}</button>
+          </div>
+          <div class="modal-body">
+            <label class="field"><span>${t("fName")}</span>
+              <input class="input" data-sf="name" value="${esc(f.name)}" placeholder="${t("phName")}"></label>
+
+            <label class="field"><span>${t("fKeywords")}</span>
+              <input class="input" data-sf="keywords" value="${esc(f.keywords)}" placeholder="${t("phKeywords")}">
+              <span id="kw-avviso">${avvisoModalitaHtml(f.keywords)}</span></label>
+            <div id="kw-varianti"></div>
+            <div class="field campo-dizionario"><span>${t("fDictKeywords")}</span>
+              ${campoDizionario("keywords")}</div>
+
+            <label class="field"><span>${t("fExclude")}</span>
+              <input class="input" data-sf="exclude" value="${esc(f.exclude)}" placeholder="${t("phExclude")}"></label>
+            <div id="ex-varianti"></div>
+            <div class="field campo-dizionario"><span>${t("fDictExclude")}</span>
+              ${campoDizionario("exclude")}</div>
+
+            ${campi.slice(1).map(([k, label, ph]) => `<label class="field">
+              <span>${t(label)}</span>
+              <input class="input" data-sf="${k}" value="${esc(f[k] ?? "")}"
+                placeholder="${ph ? t(ph) : ""}">
+              ${k === "location" ? `<span class="hint">${t("hintLocation")}</span>` : ""}</label>`).join("")}
+
+            <div class="form-toggles">
+              ${[["remote_ok", "tRemote"], ["location_filter", "tLocFilter"]].map(([k, label]) => `
+                <div class="form-toggle">
+                  <button class="switch sm ${f[k] !== false ? "on" : ""}" type="button" data-sf-toggle="${k}"><i></i></button>
+                  <span>${t(label)}</span></div>`).join("")}
+            </div>
+          </div>
+          <div class="modal-foot">
+            <button class="btn" type="button" data-close-modal>${t("modalCancel")}</button>
+            <button class="btn primary" type="button" id="save-search">${t("saveSearch")}</button>
+          </div>
+        </div>
+      </div>`;
+
+    $$("[data-sf]").forEach((i) => {
+      const k = i.dataset.sf;
+      // La soglia specifica e' l'unico campo numerico: le altre voci sono
+      // parole, localita' e codice del paese.
+      if (k === "min") soloNumeri(i);
+      if (k === "keywords" || k === "exclude") limitaEtichette(i);
+      i.oninput = () => {
+        f[k] = i.value;
+        // L'avviso sulle parole che descrivono la modalita' si aggiorna mentre
+        // si scrive, sul posto: ridisegnare la scheda sposterebbe il cursore.
+        if (k === "keywords") {
+          const dove = $("#kw-avviso");
+          if (dove) dove.innerHTML = avvisoModalitaHtml(i.value);
+        }
+      };
+    });
+    suggeritoreVarianti($('[data-sf="keywords"]'), $("#kw-varianti"),
+                        () => { f.keywords = $('[data-sf="keywords"]').value; });
+    suggeritoreVarianti($('[data-sf="exclude"]'), $("#ex-varianti"),
+                        () => { f.exclude = $('[data-sf="exclude"]').value; });
+    $$("[data-sf-toggle]").forEach((b) => b.onclick = () => {
+      const k = b.dataset.sfToggle;
+      f[k] = f[k] === false;
+      b.classList.toggle("on", f[k] !== false);
+    });
+    $("#save-search").onclick = () => salvaRicerca(f);
+    if (!f.id) $('[data-sf="name"]').focus();
+  };
+
+  state.overlayRedraw = draw;
+  draw();
+}
+
+async function salvaRicerca(f) {
   if (!(f.name || "").trim()) { toast(t("nameFirst"), "bad"); return; }
   const body = {
     name: f.name.trim(),
     keywords: splitList(f.keywords || ""),
     exclude: splitList(f.exclude || ""),
     location: (f.location || "").trim(),
-    country: ((f.country || "it").trim() || "it").toLowerCase(),
     remote_ok: f.remote_ok !== false,
     location_filter: f.location_filter !== false,
     min_match: f.min === "" || f.min === undefined ? null : Number(f.min),
-    enabled: true,
+    enabled: f.id ? undefined : true,
+    dict_keywords_id: f.dict_keywords_id ?? null,
+    dict_exclude_id: f.dict_exclude_id ?? null,
   };
+  // Una ricerca esistente non deve riaccendersi solo perche' la si e'
+  // modificata: si tiene lo stato che aveva.
+  if (f.id) {
+    const s = state.searches.find((x) => x.id === f.id);
+    body.enabled = s ? !!s.enabled : true;
+  }
   try {
     await api(f.id ? `/api/searches/${f.id}` : "/api/searches", { method: f.id ? "PUT" : "POST", body });
     toast(f.id ? t("searchUpdated") : t("searchCreated"));
-    state.form.search = {};
+    closeOverlay();
     loadSearches();
   } catch (e) { toast(e.message, "bad"); }
 }
@@ -1531,9 +2041,16 @@ async function saveSearch() {
 /* ------------------------------------------------------------------ fonti */
 
 async function loadSources() {
-  const [providers, catalogue] = await Promise.all([api("/api/providers"), api("/api/providers/catalogue")]);
+  const [providers, catalogue, ricerche, dizionari] = await Promise.all([
+    api("/api/providers"), api("/api/providers/catalogue"),
+    // Servono al segnaposto dei campi della fonte: senza, la scheda non
+    // saprebbe dire con quali parole andra' a interrogare il portale.
+    api("/api/searches"), api("/api/dictionaries"),
+  ]);
   state.providers = providers;
   state.catalogue = catalogue;
+  state.searches = ricerche;
+  state.dictionaries = dizionari;
   renderSources();
   renderShell();
 }
@@ -1757,6 +2274,47 @@ function previewHtml(r) {
     </div>`;
 }
 
+/* Con quali parole una fonte interroghera' il portale, se il suo campo resta
+   vuoto: sono quelle delle ricerche attive, dizionari compresi, esattamente
+   come le mette insieme il server. Diventano il segnaposto del campo, che
+   quindi resta vuoto - non si copiano dentro - e resta d'accordo con le
+   ricerche anche quando queste cambiano. */
+function paroleDalleRicerche() {
+  const fuori = [];
+  for (const s of state.searches) {
+    if (!s.enabled) continue;
+    const dal = state.dictionaries.find((d) => d.id === s.dict_keywords_id);
+    for (const k of [...(s.keywords || []), ...((dal && dal.words) || [])]) {
+      const v = String(k).trim();
+      if (v && !fuori.some((x) => x.toLowerCase() === v.toLowerCase())) fuori.push(v);
+    }
+  }
+  return fuori;
+}
+
+function luogoDalleRicerche() {
+  const s = state.searches.find((x) => x.enabled && (x.location || "").trim());
+  return s ? s.location.trim() : "";
+}
+
+/* Il segnaposto di un campo della fonte. Solo per i campi che il server sa
+   riempire da solo leggendo le ricerche; per gli altri resta quello del
+   catalogo. */
+function segnapostoFonte(campo) {
+  const dalle = t("fromSearches");
+  if (campo.name === "keywords") {
+    const parole = paroleDalleRicerche();
+    if (!parole.length) return campo.placeholder || "";
+    const mostrate = parole.slice(0, 6).join(", ");
+    return `${dalle} ${mostrate}${parole.length > 6 ? ` +${parole.length - 6}` : ""}`;
+  }
+  if (campo.name === "location") {
+    const luogo = luogoDalleRicerche();
+    return luogo ? `${dalle} ${luogo}` : (campo.placeholder || "");
+  }
+  return campo.placeholder || "";
+}
+
 /* Modale dei parametri: i campi non sono scritti qui, arrivano dal catalogo
    che ogni provider compila per conto suo. */
 function openProviderModal(kind, existing = null) {
@@ -1804,7 +2362,7 @@ function openProviderModal(kind, existing = null) {
               <label class="field">
                 <span>${esc(f.label)}${f.required ? "" : ` <span class="hint">(${t("optional")})</span>`}</span>
                 <input class="input ${touched && f.required && !values[f.name] ? "bad" : ""}"
-                  data-pf="${esc(f.name)}" placeholder="${esc(f.placeholder || "")}" value="${esc(values[f.name] || "")}">
+                  data-pf="${esc(f.name)}" placeholder="${esc(segnapostoFonte(f))}" value="${esc(values[f.name] || "")}">
                 ${f.help ? `<span class="hint">${esc(f.help)}</span>` : ""}
               </label>`).join("")
               : `<div class="notice">${t("modalNoFields")}</div>`}
@@ -3503,6 +4061,7 @@ const LOADERS = {
   history: loadApplications,
   searches: loadSearches,
   sources: loadSources,
+  dictionaries: loadDictionaries,
   cv: loadCv,
   settings: async () => {
     await loadSettings(false);
@@ -3560,6 +4119,8 @@ function wire() {
       const value = pick.dataset.value;
       state.dd = null;
       chiudiMenuAperto();
+      const conf = _vociMenu[dd];
+      if (conf && conf.scelta) { conf.scelta(value); return; }
       if (dd === "provider") { state.filters.provider = value; renderJobsView(); loadJobs(); }
       else if (dd === "llmmodel") {
         api("/api/settings", { method: "PUT", body: { llm_model: value } })

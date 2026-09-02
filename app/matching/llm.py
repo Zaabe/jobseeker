@@ -452,6 +452,49 @@ def read_cv(text: str, provider: str = DEFAULT_PROVIDER, model: str = "",
     return lettura if isinstance(lettura, CvReading) else None
 
 
+class ParoleSimili(BaseModel):
+    """Le altre forme con cui si scrive la stessa cosa negli annunci."""
+
+    variants: list[str] = Field(default_factory=list, max_length=12)
+
+
+SYSTEM_PAROLE = """Conosci il linguaggio degli annunci di lavoro, in italiano e in inglese.
+Ti viene data una parola o un'espressione. Elenchi le altre forme con cui la
+stessa cosa compare negli annunci: sinonimi, sigle e abbreviazioni, la forma
+inglese di quella italiana e viceversa, le grafie alternative.
+
+Regole:
+- solo forme che un annuncio userebbe davvero al posto di quella data;
+- niente forme piu' generiche o piu' specifiche: "sviluppatore" non e' una
+  variante di "sviluppatore backend", e "python" non e' una variante di
+  "programmatore";
+- tutto in minuscolo, senza ripetere la parola di partenza;
+- al massimo otto voci, meglio poche e giuste che molte."""
+
+
+def parole_simili(parola: str, provider: str = DEFAULT_PROVIDER,
+                  model: str = "") -> list[str] | None:
+    """Le varianti di una parola secondo il modello. None se non e' utilizzabile.
+
+    Le varianti meccaniche - trattino, plurale, accenti - le trova gia'
+    l'interfaccia da sola: qui interessano quelle che richiedono di sapere cosa
+    vuol dire la parola.
+    """
+    parola = (parola or "").strip()
+    if not parola:
+        return []
+    risposta = _chiedi(provider, model, SYSTEM_PAROLE,
+                       f"Parola: {parola}", ParoleSimili, 500)
+    if not isinstance(risposta, ParoleSimili):
+        return None
+    pulite: list[str] = []
+    for voce in risposta.variants:
+        v = " ".join(str(voce).split()).lower()
+        if v and v != parola.lower() and v not in pulite and len(v) <= 60:
+            pulite.append(v)
+    return pulite[:8]
+
+
 # Un annuncio minimo e un profilo minimo: alla prova non interessa il giudizio,
 # interessa sapere se la chiave, la libreria e il modello stanno insieme.
 class _FintaOfferta:

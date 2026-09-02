@@ -1279,3 +1279,32 @@ input[type=range]::-moz-range-thumb { width: 17px; height: 17px; border: 0; bord
    che dice quante offerte stanno aspettando. */
 .coda-azione { display: flex; align-items: center; gap: 10px; margin-top: 9px; flex-wrap: wrap; }
 .coda-azione .legend { flex: 1 1 260px; min-width: 0; margin: 0; }
+
+/* L'avviso sulle parole chiave che descrivono la modalita' di lavoro: e' un
+   suggerimento, non un errore, quindi ha il colore degli avvisi tiepidi. */
+/* Il selettore e' lungo di proposito: .field .hint ha specificita' 0,2,0 e
+   vincerebbe su una classe sola, lasciando l'avviso grigio come un
+   suggerimento qualunque. */
+.field .hint.avviso-modalita { color: var(--wn-ink); }
+
+/* Le schede di ricerche e dizionari: una griglia che si adatta invece di una
+   colonna sola larga tutta la pagina. */
+.griglia-carte { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
+                 gap: 12px; align-items: start; }
+.riga-azioni { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.riga-azioni .lead { flex: 1 1 240px; min-width: 0; }
+
+/* Il dizionario collegato a una ricerca, dentro le chip della scheda. */
+.chip.dict { display: inline-flex; align-items: center; gap: 4px; }
+.chip.dict svg { flex: none; }
+
+/* Il campo con il menu a tendina del dizionario: la tendina non e' un
+   <input>, quindi la .field non le da' da sola la larghezza. */
+.campo-dizionario .dd { width: 100%; }
+.campo-dizionario .dd > button { width: 100%; justify-content: space-between; }
+
+/* Le varianti proposte sotto un campo di parole. */
+.varianti { display: flex; flex-direction: column; gap: 6px; margin: -4px 0 4px; }
+.varianti .hint { line-height: 1.4; }
+.varianti .chips { align-items: center; }
+.varianti .btn.small { gap: 5px; }

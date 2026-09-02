@@ -12,7 +12,9 @@ import hmac
 import json
 import logging
 import os
+import re
 import secrets
+import sqlite3
 import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
@@ -26,7 +28,7 @@ from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import accesso, db, notify, scheduler
+from . import accesso, db, notify, paesi, scheduler
 from .config import CV_DIR, PREFISSO_SEGRETO, SECRETS, SEGRETI, STATIC_DIR
 from .config import dimentica_segreti
 from .matching import CVParseError, build_profile, extract_text, feedback, llm
@@ -93,12 +95,26 @@ def _etichette(valori: list[str]) -> list[str]:
     return pulite
 
 
+class DictionaryIn(BaseModel):
+    name: str = Field(min_length=1, max_length=60)
+    # 'keywords' o 'exclude': un dizionario serve a cercare o a escludere, non
+    # a entrambe le cose.
+    kind: str = "exclude"
+    words: list[str] = []
+
+
 class SearchIn(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     keywords: list[str] = []
     exclude: list[str] = []
+    dict_keywords_id: int | None = None
+    dict_exclude_id: int | None = None
     location: str = ""
-    country: str = "it"
+    # Il paese non si scrive piu' a parte: sta dentro la localita' - "Milano,
+    # Italia" o solo "Italia" - e da li' viene ricavato. Un campo a parte
+    # voleva dire scrivere due volte la stessa cosa, e poterle mettere in
+    # contraddizione: "Berlino" con il paese "it" non trovava niente.
+    country: str = ""
     remote_ok: bool = True
     location_filter: bool = True
     min_match: int | None = None
@@ -319,6 +335,97 @@ def rescore() -> dict[str, Any]:
 # Ricerche
 # --------------------------------------------------------------------------
 
+TIPI_DIZIONARIO = ("keywords", "exclude")
+
+
+def _paese_di(payload: SearchIn) -> str:
+    """Il paese di una ricerca: quello scritto, o quello che dice la localita'.
+
+    L'interfaccia non manda piu' niente, quindi in pratica decide sempre la
+    localita'. Se non ci si riconosce un paese - "Milano" da sola - non se ne
+    inventa uno: il filtro sul paese resta spento e a lavorare c'e' quello sulla
+    localita'. Mettere "it" per abitudine avrebbe buttato via gli annunci di
+    "Berlino".
+    """
+    scritto = (payload.country or "").strip().lower()
+    if scritto:
+        return scritto
+    return paesi.codice_dalla_sede(payload.location)
+
+
+class ParolaIn(BaseModel):
+    word: str = Field(min_length=1, max_length=60)
+
+
+@app.post("/api/words/variants")
+async def word_variants(payload: ParolaIn) -> dict[str, Any]:
+    """Le altre forme con cui si scrive una parola, secondo il modello.
+
+    Serve al campo delle parole chiave: chi scrive "full-stack" vuole anche
+    "fullstack", e quelle meccaniche l'interfaccia le trova gia' da sola. Qui
+    arrivano le altre - sigle, sinonimi, la forma nell'altra lingua.
+    """
+    provider = db.get_setting("llm_provider", llm.DEFAULT_PROVIDER)
+    modello = db.get_setting("llm_model", "")
+    disponibile, motivo = llm.is_available(provider)
+    if not disponibile:
+        raise HTTPException(400, motivo or "livello semantico non configurato")
+    varianti = await asyncio.to_thread(llm.parole_simili, payload.word, provider, modello)
+    if varianti is None:
+        raise HTTPException(502, "il modello non ha risposto")
+    return {"word": payload.word.strip(), "variants": varianti}
+
+
+@app.get("/api/dictionaries")
+def list_dictionaries() -> list[dict[str, Any]]:
+    return db.rows_to_dicts(db.query("SELECT * FROM dictionary ORDER BY kind, name"))
+
+
+@app.post("/api/dictionaries", status_code=201)
+def create_dictionary(payload: DictionaryIn) -> dict[str, Any]:
+    if payload.kind not in TIPI_DIZIONARIO:
+        raise HTTPException(400, "tipo di dizionario sconosciuto")
+    try:
+        cursore = db.execute(
+            "INSERT INTO dictionary(name, kind, words_json, created_at) VALUES (?,?,?,?)",
+            (payload.name.strip(), payload.kind,
+             json.dumps(_etichette(payload.words), ensure_ascii=False), db.utcnow()))
+    except sqlite3.IntegrityError:
+        raise HTTPException(409, "esiste gia' un dizionario con questo nome e tipo")
+    return db.row_to_dict(db.query_one("SELECT * FROM dictionary WHERE id = ?",
+                                       (cursore.lastrowid,)))
+
+
+@app.put("/api/dictionaries/{dict_id}")
+def update_dictionary(dict_id: int, payload: DictionaryIn) -> dict[str, Any]:
+    if db.query_one("SELECT 1 FROM dictionary WHERE id = ?", (dict_id,)) is None:
+        raise HTTPException(404, "dizionario non trovato")
+    if payload.kind not in TIPI_DIZIONARIO:
+        raise HTTPException(400, "tipo di dizionario sconosciuto")
+    try:
+        db.execute("UPDATE dictionary SET name = ?, kind = ?, words_json = ? WHERE id = ?",
+                   (payload.name.strip(), payload.kind,
+                    json.dumps(_etichette(payload.words), ensure_ascii=False), dict_id))
+    except sqlite3.IntegrityError:
+        raise HTTPException(409, "esiste gia' un dizionario con questo nome e tipo")
+    # Le parole di un dizionario decidono cosa entra in archivio: cambiate
+    # quelle, il filtro delle ricerche che lo usano e' cambiato.
+    pipeline.invalidate()
+    return db.row_to_dict(db.query_one("SELECT * FROM dictionary WHERE id = ?", (dict_id,)))
+
+
+@app.delete("/api/dictionaries/{dict_id}")
+def delete_dictionary(dict_id: int) -> dict[str, str]:
+    """Cancella un dizionario. Le ricerche che lo usavano restano, senza di lui.
+
+    Il collegamento e' ON DELETE SET NULL: una ricerca non si porta dietro un
+    dizionario che non c'e' piu', e le parole scritte nei suoi campi restano.
+    """
+    db.execute("DELETE FROM dictionary WHERE id = ?", (dict_id,))
+    pipeline.invalidate()
+    return {"status": "eliminato"}
+
+
 @app.get("/api/searches")
 def list_searches() -> list[dict[str, Any]]:
     return db.rows_to_dicts(db.query("SELECT * FROM search ORDER BY id"))
@@ -328,11 +435,14 @@ def list_searches() -> list[dict[str, Any]]:
 def create_search(payload: SearchIn) -> dict[str, Any]:
     cursor = db.execute(
         "INSERT INTO search(name, keywords_json, exclude_json, location, country, remote_ok, "
-        "location_filter, min_match, enabled, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+        "location_filter, min_match, enabled, dict_keywords_id, dict_exclude_id, created_at) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
         (payload.name, json.dumps(_etichette(payload.keywords)),
          json.dumps(_etichette(payload.exclude)),
-         payload.location, payload.country, int(payload.remote_ok), int(payload.location_filter),
-         payload.min_match, int(payload.enabled), db.utcnow()),
+         payload.location, _paese_di(payload),
+         int(payload.remote_ok), int(payload.location_filter),
+         payload.min_match, int(payload.enabled),
+         payload.dict_keywords_id, payload.dict_exclude_id, db.utcnow()),
     )
     return db.row_to_dict(db.query_one("SELECT * FROM search WHERE id = ?", (cursor.lastrowid,)))
 
@@ -343,11 +453,14 @@ def update_search(search_id: int, payload: SearchIn) -> dict[str, Any]:
         raise HTTPException(404, "ricerca non trovata")
     db.execute(
         "UPDATE search SET name=?, keywords_json=?, exclude_json=?, location=?, country=?, "
-        "remote_ok=?, location_filter=?, min_match=?, enabled=? WHERE id=?",
+        "remote_ok=?, location_filter=?, min_match=?, enabled=?, dict_keywords_id=?, "
+        "dict_exclude_id=? WHERE id=?",
         (payload.name, json.dumps(_etichette(payload.keywords)),
          json.dumps(_etichette(payload.exclude)),
-         payload.location, payload.country, int(payload.remote_ok), int(payload.location_filter),
-         payload.min_match, int(payload.enabled), search_id),
+         payload.location, _paese_di(payload),
+         int(payload.remote_ok), int(payload.location_filter),
+         payload.min_match, int(payload.enabled),
+         payload.dict_keywords_id, payload.dict_exclude_id, search_id),
     )
     return db.row_to_dict(db.query_one("SELECT * FROM search WHERE id = ?", (search_id,)))
 

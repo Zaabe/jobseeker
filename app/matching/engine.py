@@ -138,10 +138,16 @@ def _score_skills(job: JobView, cv: CVProfile) -> tuple[Component, list[str], li
     required = extract_skills(job.text)
     owned = set(cv.skills)
     if not required:
+        # Nessuna competenza riconoscibile nell'annuncio: non c'e' niente a cui
+        # essere affini, quindi l'elenco delle affini resta vuoto. Prima qui
+        # tornavano *tutte* le competenze del profilo, e la scheda dell'offerta
+        # le mostrava sotto "Tue competenze affini": su un annuncio che non ne
+        # citava nessuna comparivano Java, Git, Docker e tutte le altre, come se
+        # l'offerta le chiedesse.
         return (
             Component("skills", LABELS["skills"], 0.0, DEFAULT_WEIGHTS["skills"],
                       "L'annuncio non cita competenze tecniche riconoscibili", evaluated=False),
-            [], [], sorted(owned),
+            [], [], [],
         )
 
     # Ordinate per peso: l'interfaccia mostra solo le prime, e deve mostrare

@@ -15,7 +15,7 @@ from typing import Any, Iterable
 
 import httpx
 
-from . import db, notify
+from . import db, notify, paesi
 from .matching import CVProfile, IdfIndex, JobView, cv_parser, llm, score_job
 from .matching import skills
 from .matching import feedback as fb
@@ -182,12 +182,32 @@ class Pipeline:
         sql = "SELECT * FROM search"
         if only_enabled:
             sql += " WHERE enabled = 1"
+        # Le parole dei dizionari collegati si sommano a quelle scritte nei
+        # campi della ricerca. Si leggono tutti in una volta: sono pochi, e
+        # farlo per ogni ricerca vorrebbe dire una query per riga.
+        dizionari = {
+            r["id"]: json.loads(r["words_json"] or "[]")
+            for r in db.query("SELECT id, words_json FROM dictionary")
+        }
+
+        def unisci(scritte: list[str], id_dizionario: Any) -> list[str]:
+            parole = list(scritte)
+            # Il confronto ignora le maiuscole: nel campo si scrive come viene,
+            # e "Analista" nella ricerca con "analista" nel dizionario sono la
+            # stessa parola cercata due volte.
+            viste = {p.casefold() for p in parole}
+            for voce in dizionari.get(id_dizionario, []):
+                if voce.casefold() not in viste:
+                    parole.append(voce)
+                    viste.add(voce.casefold())
+            return parole
+
         return [
             SearchSpec(
                 id=r["id"],
                 name=r["name"],
-                keywords=json.loads(r["keywords_json"] or "[]"),
-                exclude=json.loads(r["exclude_json"] or "[]"),
+                keywords=unisci(json.loads(r["keywords_json"] or "[]"), r["dict_keywords_id"]),
+                exclude=unisci(json.loads(r["exclude_json"] or "[]"), r["dict_exclude_id"]),
                 location=r["location"],
                 country=r["country"],
                 remote_ok=bool(r["remote_ok"]),
@@ -217,6 +237,45 @@ class Pipeline:
         return "parole chiave"
 
     @staticmethod
+    def _parola_gia_cercata(posting: Any, spec: SearchSpec) -> bool:
+        """Se l'offerta arriva da una ricerca fatta con una parola di `spec`.
+
+        Le fonti che interrogano un portale scrivono in `raw["query"]` la parola
+        che hanno usato. Vale solo finche' la descrizione non c'e': appena
+        arriva, il testo dell'annuncio e' l'informazione migliore e si torna a
+        guardare quello.
+        """
+        if (getattr(posting, "description", "") or "").strip():
+            return False
+        parola = normalize(str((getattr(posting, "raw", None) or {}).get("query", "")))
+        if not parola:
+            return False
+        return any(normalize(term) == parola for term in spec.keywords if term)
+
+    @staticmethod
+    def _luogo_gia_cercato(posting: Any, spec: SearchSpec) -> bool:
+        """Se la fonte ha già cercato in questo luogo, e nello stesso paese.
+
+        Le schede di LinkedIn scrivono spesso solo la citta' - "Milano" - senza
+        mai nominare il paese. Una ricerca "in Italia" non ha modo di
+        riconoscerle: il testo non dice Italia, il campo paese e' vuoto, e le
+        scartava tutte. Ma la richiesta a LinkedIn conteneva "Italy", quindi
+        quel filtro e' gia' stato applicato da chi ha l'anagrafica dei luoghi.
+
+        Vale solo per la ricerca che ha chiesto *quel* luogo: le fonti mandano
+        una sola richiesta per tutte le ricerche, e un annuncio milanese non
+        diventa pertinente per una ricerca su Roma.
+        """
+        chiesto = str((getattr(posting, "raw", None) or {}).get("query_luogo", ""))
+        if not chiesto:
+            return False
+        if normalize(paesi.senza_paese(chiesto)) != normalize(paesi.senza_paese(spec.location)):
+            return False
+        paese_chiesto = paesi.codice_dalla_sede(chiesto)
+        atteso = (spec.country or "").strip().lower()
+        return not atteso or not paese_chiesto or paese_chiesto == atteso
+
+    @staticmethod
     def matches_search(posting: Any, spec: SearchSpec) -> bool:
         """Verifica se un'offerta rientra in una ricerca salvata.
 
@@ -226,37 +285,75 @@ class Pipeline:
         haystack = normalize(posting.searchable_text())
         if spec.exclude and any(normalize(term) in haystack for term in spec.exclude if term):
             return False
-        if spec.keywords:
+        # Le parole chiave si cercano nel testo dell'offerta. Con una
+        # eccezione: se questa offerta e' il risultato di una ricerca fatta
+        # dalla fonte con una parola di *questa* ricerca, la selezione e' gia'
+        # stata fatta, e da chi aveva piu' informazioni di noi.
+        #
+        # Il caso vero: LinkedIn cerca la parola anche nei requisiti, noi in
+        # questo momento abbiamo solo il titolo, perche' le descrizioni si
+        # scaricano dopo il filtro. Su 165 annunci elencati da LinkedIn per
+        # "react" ne restavano zero: nessun titolo dice "react". La fonte
+        # lavorava e il risultato veniva buttato via tutto.
+        #
+        # Non e' un liberi tutti: conta solo la parola con cui l'offerta e'
+        # stata effettivamente trovata, e solo se e' fra quelle di questa
+        # ricerca. Un annuncio pescato con la parola di un'altra ricerca resta
+        # da giudicare sul testo, come prima.
+        if spec.keywords and not Pipeline._parola_gia_cercata(posting, spec):
             if not any(normalize(term) in haystack for term in spec.keywords if term):
                 return False
         if spec.location_filter:
+            sede = " ".join(p for p in (posting.location, posting.city, posting.region) if p)
+            # Il paese dell'offerta: quello dichiarato o, se non c'e', quello
+            # nominato nella sede. Le offerte da remoto spesso lasciano vuoto il
+            # campo e scrivono "Remote - United States", che nessun campo
+            # strutturato racconta.
+            paese_offerta = posting.country or paesi.paese_nel_testo(sede)
+            # Il paese vale da solo, e vale anche per il remoto. Prima il
+            # remoto passava qui sopra, prima di qualunque controllo: bastava
+            # che un annuncio fosse "da remoto" perche' il filtro sulla
+            # localita' non lo guardasse piu', e arrivavano offerte da remoto
+            # degli Stati Uniti a una ricerca in Italia. Lavorare da casa non
+            # sposta il fuso orario, ne' il permesso di lavoro: il remoto
+            # esonera dalla citta', non dal paese.
+            #
+            # Prima ancora, tutto questo blocco partiva solo se la ricerca aveva
+            # scritto anche una localita': chi metteva solo il paese si
+            # ritrovava le offerte estere in mezzo alle altre. Le offerte che il
+            # paese non lo dicono da nessuna parte passano e vengono giudicate
+            # sul testo della sede: meglio una in piu' da scartare a mano che
+            # una buona buttata via su un'informazione assente.
+            if (spec.country and paese_offerta
+                    and not job_in_country(paese_offerta, spec.country)):
+                return False
             if posting.remote and spec.remote_ok:
                 return True
-            # Il paese vale da solo. Prima tutto questo blocco partiva solo se
-            # la ricerca aveva scritto anche una localita': chi metteva "Paese:
-            # IT" e lasciava vuota la localita' si ritrovava le offerte estere
-            # in mezzo alle altre, perche' non veniva controllato niente. Le
-            # offerte che il paese non lo dichiarano passano di qui e vengono
-            # giudicate sul testo della sede, come prima: meglio una in piu' da
-            # scartare a mano che una buona buttata su un'informazione assente.
-            if (spec.country and posting.country
-                    and not job_in_country(posting.country, spec.country)):
-                return False
             if not spec.location:
                 return True
-            place = " ".join(p for p in (posting.location, posting.city, posting.region,
-                                         posting.country) if p)
+            # Il luogo l'ha già ristretto la fonte, con l'anagrafica dei luoghi
+            # che noi non abbiamo: qui non si può fare di meglio che rifiutare
+            # una scheda scritta "Milano" perché non dice "Italia".
+            if Pipeline._luogo_gia_cercato(posting, spec):
+                return True
+            # I luoghi da cercare, senza il paese: quello e' gia' stato
+            # controllato qui sopra, e lasciarlo in mezzo agli altri lo
+            # trasformerebbe in un'alternativa. "Milano, Italia" chiede Milano;
+            # se valesse anche "Italia" il filtro terrebbe tutto il paese, ed e'
+            # esattamente cio' che si voleva escludere accendendolo.
+            luoghi = paesi.senza_paese(spec.location)
+            place = " ".join(p for p in (sede, posting.country) if p)
             # Cercare "Italia" e' una ricerca sull'intero paese, e va risolta sul
             # campo paese dell'offerta: molte fonti scrivono la sede come
             # "Roma, Provincia di Roma" senza mai nominare l'Italia, e un
             # confronto puramente testuale le scarterebbe tutte.
-            if is_country_query(spec.location, spec.country):
-                if job_in_country(posting.country, spec.country):
+            if not luoghi or is_country_query(spec.location, spec.country):
+                if job_in_country(paese_offerta, spec.country):
                     return True
                 return not place or place_matches(spec.location, place)
             # Altrimenti si confronta il testo, con le varianti linguistiche:
             # le fonti scrivono "Milan, Italy", la ricerca dice "Milano".
-            if place and not place_matches(spec.location, place):
+            if place and not place_matches(luoghi, place):
                 return False
         return True
 

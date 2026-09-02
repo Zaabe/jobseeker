@@ -60,6 +60,19 @@ CREATE TABLE IF NOT EXISTS search (
     created_at    TEXT NOT NULL
 );
 
+-- Dizionari: liste di parole con un nome, da riusare su piu' ricerche.
+-- `kind` dice a cosa serve la lista - 'keywords' o 'exclude' - perche' le due
+-- cose non si mescolano: una lista di linguaggi che non si vogliono non ha
+-- senso come elenco di cose da cercare.
+CREATE TABLE IF NOT EXISTS dictionary (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    name          TEXT NOT NULL,
+    kind          TEXT NOT NULL DEFAULT 'exclude',
+    words_json    TEXT NOT NULL DEFAULT '[]',
+    created_at    TEXT NOT NULL,
+    UNIQUE(name, kind)
+);
+
 -- Fonti di offerte. `kind` identifica l'adapter, `config_json` i suoi parametri
 -- (es. il token della board aziendale).
 CREATE TABLE IF NOT EXISTS provider (
@@ -213,6 +226,12 @@ MIGRATIONS: list[tuple[str, str, str]] = [
     # avviso lo avrebbe fatto tornare al giro dopo. Ora la riga resta e sparisce
     # solo dall'elenco.
     ("notification", "dismissed", "INTEGER NOT NULL DEFAULT 0"),
+    # I due dizionari collegati a una ricerca, uno per tipo. Le parole del
+    # dizionario si sommano a quelle scritte nei campi: il campo resta il posto
+    # dove si mette qualcosa che vale solo per quella ricerca, il dizionario
+    # quello dove sta cio' che vale per tutte.
+    ("search", "dict_keywords_id", "INTEGER REFERENCES dictionary(id) ON DELETE SET NULL"),
+    ("search", "dict_exclude_id", "INTEGER REFERENCES dictionary(id) ON DELETE SET NULL"),
     # Un foglietto che la fonte si lascia da un giro all'altro. Serve a chi
     # sfoglia un elenco a pagine e deve ricordarsi dov'era arrivato: senza,
     # ogni giro ricomincerebbe dalla prima pagina e il fondo dell'elenco non

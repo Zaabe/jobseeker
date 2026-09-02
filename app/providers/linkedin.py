@@ -29,6 +29,7 @@ from urllib.parse import parse_qs, urlparse
 
 import httpx
 
+from .. import paesi
 from ..paesi import codice_dalla_sede
 from .base import (
     BaseProvider,
@@ -70,7 +71,12 @@ log = logging.getLogger("jobseeker.providers")
 # Quattro pagine per parola chiave sono quaranta offerte a giro e ventiquattro
 # richieste nel caso peggiore, ogni mezz'ora.
 MAX_TERMINI = 6
-MAX_PAGINE = 4
+# Il valore predefinito e il tetto. Il numero si puo' alzare dalla scheda della
+# fonte: piu' pagine per giro vuol dire percorrere l'elenco piu' in fretta e
+# fare piu' richieste: e' il compromesso di chi la usa, non una costante di
+# questo file. Oltre il tetto non si va, perche' oltre c'e' il blocco.
+PAGINE_PREDEFINITE = 4
+MAX_PAGINE = 20
 PAGINE_IN_CIMA = 2
 MAX_DETTAGLI = 15
 PAUSA = 4.0
@@ -246,8 +252,8 @@ class LinkedInProvider(BaseProvider):
     description = (
         "Ricerca pubblica di LinkedIn, letta come la vede un visitatore senza account. "
         "Non e' un'API: il ritmo e' basso di proposito (mezz'ora fra un giro e l'altro, "
-        "ultimi sette giorni, quattro pagine per parola chiave) e la fonte e' meno "
-        "affidabile delle altre, "
+        "ultimi sette giorni, quattro pagine per parola chiave, tutti valori che si "
+        "possono cambiare) e la fonte e' meno affidabile delle altre, "
         "perche' LinkedIn puo' cambiare le pagine o rifiutare le richieste."
     )
     needs_credentials = False
@@ -262,6 +268,13 @@ class LinkedInProvider(BaseProvider):
          "required": False,
          "help": "Vuoto significa usare le parole chiave delle ricerche salvate, "
                  "una richiesta per parola."},
+        {"name": "pages", "label": "Pagine per parola chiave a ogni giro",
+         "placeholder": "4", "required": False,
+         "help": "Dieci offerte per pagina. Vuoto significa 4 pagine: due in cima "
+                 "all'elenco, dove compaiono le novita', e due piu' in basso, che "
+                 "riprendono da dove era arrivato il giro prima. Alzarlo fa percorrere "
+                 "l'elenco piu' in fretta, ma sono piu' richieste a LinkedIn nello "
+                 "stesso giro, e LinkedIn le conta."},
         {"name": "days", "label": "Solo gli ultimi giorni", "placeholder": "7", "required": False,
          "help": "Vuoto significa gli ultimi 7 giorni. Un numero piu' grande scende piu' "
                  "indietro nel tempo; 0 toglie il limite, ma allunga di molto ogni giro."},
@@ -370,10 +383,24 @@ class LinkedInProvider(BaseProvider):
         return termini[:MAX_TERMINI]
 
     def _luogo(self, searches: list[SearchSpec]) -> str:
+        """Il luogo da mandare a LinkedIn, con il paese scritto in inglese.
+
+        LinkedIn non geocodifica "Italia" e non lo dice: risponde 200 con dieci
+        annunci di New York. Anche una citta' da sola - "Milano" - finisce
+        cosi'. Con "Milano, Italy" o "Italy" i risultati sono quelli giusti,
+        quindi il paese si traduce e, se manca, si aggiunge prendendolo dalla
+        ricerca.
+        """
         proprio = _pulisci(str(self.config.get("location", "")))
+        paese = next((s.country for s in searches or [] if s.country), "")
         if proprio:
-            return proprio
-        return next((s.location for s in searches or [] if s.location), "")
+            return paesi.in_inglese(proprio, paese)
+        scritto = next((s.location for s in searches or [] if s.location), "")
+        if scritto:
+            return paesi.in_inglese(scritto, paese)
+        # Nessuna localita' scritta da nessuna parte: resta il paese, che e'
+        # comunque meglio del default di LinkedIn.
+        return paesi.INGLESE.get(paese.lower(), "").title() if paese else ""
 
     def _giorni(self) -> int:
         """La finestra di date da chiedere a LinkedIn, in giorni.
@@ -388,6 +415,16 @@ class LinkedInProvider(BaseProvider):
             return max(0, int(scritto))
         except ValueError:
             return GIORNI_PREDEFINITI
+
+    def _pagine(self) -> int:
+        """Quante pagine leggere per parola chiave a ogni giro."""
+        scritto = _pulisci(str(self.config.get("pages", "")))
+        if not scritto:
+            return PAGINE_PREDEFINITE
+        try:
+            return max(1, min(MAX_PAGINE, int(scritto)))
+        except ValueError:
+            return PAGINE_PREDEFINITE
 
     async def fetch(self, searches: list[SearchSpec]) -> list[JobPosting]:
         if BeautifulSoup is None:
@@ -451,11 +488,15 @@ class LinkedInProvider(BaseProvider):
         """
         cursori = self.stato.setdefault("cursori", {})
         chiave = termine or "*"
+        pagine_giro = self._pagine()
+        # La cima non si mangia tutto il budget: con una pagina sola in totale
+        # si guarda solo la cima, che e' dove stanno le novita'.
+        in_cima = min(PAGINE_IN_CIMA, pagine_giro)
 
         # In anteprima una pagina sola: c'e' qualcuno che aspetta la risposta, e
         # una pagina basta a dire se la fonte risponde e cosa restituisce.
         cima = await self._passata(termine, luogo, giorni, remoto, trovate, inizio=0,
-                                   pagine=1 if self.anteprima else PAGINE_IN_CIMA,
+                                   pagine=1 if self.anteprima else in_cima,
                                    fino_a_novita=True)
         if self.anteprima:
             return
@@ -465,7 +506,7 @@ class LinkedInProvider(BaseProvider):
             cursori[chiave] = 0
             return
 
-        restanti = MAX_PAGINE - cima["pagine"]
+        restanti = pagine_giro - cima["pagine"]
         if restanti <= 0:
             return
         # Mai sotto quello che si e' appena letto: la passata in profondita'
@@ -527,6 +568,18 @@ class LinkedInProvider(BaseProvider):
             for offerta in offerte:
                 if offerta.external_id not in self.id_in_archivio:
                     nuove += 1
+                # Con che parola e' stata trovata. Serve al filtro di
+                # pertinenza: la descrizione arriva solo dopo, e senza sapere
+                # che questo annuncio e' il risultato di una ricerca su quella
+                # parola il filtro lo giudicherebbe sul solo titolo.
+                if termine:
+                    offerta.raw["query"] = termine
+                # E in che luogo. Le schede di LinkedIn spesso scrivono solo la
+                # citta' - "Milano" - senza mai nominare il paese: il filtro di
+                # pertinenza non avrebbe modo di sapere che quella ricerca era
+                # gia' ristretta all'Italia, e le scarterebbe tutte.
+                if luogo:
+                    offerta.raw["query_luogo"] = luogo
                 trovate.setdefault(offerta.external_id, offerta)
             esito["nuove"] += nuove
 

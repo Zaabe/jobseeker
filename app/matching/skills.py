@@ -232,8 +232,15 @@ ROLE_FAMILIES: dict[str, list[str]] = {
         "venditore", "key account", "sales representative", "informatore scientifico",
     ],
     "marketing": [
-        "marketing", "product manager", "brand manager", "growth", "content", "communication specialist",
-        "social media manager", "digital marketing",
+        # "content" da sola non c'e' piu': e' una parola che compare in mezzo a
+        # qualunque cosa - "content annotation", "content moderation", "content
+        # delivery" - e bastava a far classificare come marketing un annuncio
+        # che col marketing non c'entra niente. Nel titolo di un lavoro di
+        # marketing "content" arriva sempre accompagnata.
+        "marketing", "product manager", "brand manager", "growth",
+        "communication specialist", "social media manager", "digital marketing",
+        "content marketing", "content strategist", "content strategy",
+        "content creator", "content editor", "content specialist", "copywriter",
     ],
     "amministrazione e hr": [
         "contabile", "accountant", "controller", "hr", "human resources", "recruiter",
