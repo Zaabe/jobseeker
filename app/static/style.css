@@ -1247,3 +1247,28 @@ input[type=range]::-moz-range-thumb { width: 17px; height: 17px; border: 0; bord
 }
 #btn-run .spin, #btn-run #run-label { position: relative; }
 #run-label { font-variant-numeric: tabular-nums; }
+
+/* Il conto degli avvisi in attesa, sotto la soglia: una riga di servizio, non
+   un titolo. */
+#soglia-attesa { display: block; margin-top: 3px; }
+/* `.row-label b` e' un blocco, e il numero finiva su una riga da solo:
+   dentro questa nota deve stare nel discorso. */
+#soglia-attesa b { display: inline; font-size: inherit; font-weight: 600; color: var(--tx2); }
+
+/* --------------------------------------------- schermata di attesa ------- */
+
+/* Riusa la scheda dei modali: cambia solo il cerchio che gira, perche' quello
+   dei pulsanti e' bianco su blu e qui sparirebbe nel fondo chiaro. */
+.modal.attesa { width: 440px; }
+.modal.attesa .modal-head { padding-bottom: 4px; align-items: center; }
+.attesa-cerchio { flex: none; width: 34px; height: 34px; display: grid; place-items: center; }
+.attesa-cerchio .spin {
+  width: 22px; height: 22px; border: 2px solid var(--bd);
+  border-top-color: var(--ac); border-radius: 50%;
+  animation: spin .8s linear infinite;
+}
+
+/* La riga con il pulsante per svuotare la coda del modello, dentro l'avviso
+   che dice quante offerte stanno aspettando. */
+.coda-azione { display: flex; align-items: center; gap: 10px; margin-top: 9px; flex-wrap: wrap; }
+.coda-azione .legend { flex: 1 1 260px; min-width: 0; margin: 0; }

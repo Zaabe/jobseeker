@@ -607,14 +607,27 @@ class Pipeline:
     # `notify_max_per_cycle`.
     MAI_ANNUNCIATE = 200
 
-    def mai_annunciate(self, escludi: set[int]) -> list[dict[str, Any]]:
-        """Le offerte in archivio che non hanno mai prodotto un avviso.
+    @staticmethod
+    def finestra_arretrato() -> str:
+        """Da quando in poi un'offerta mai annunciata merita ancora un avviso."""
+        giorni = max(0, db.get_setting_int("notify_backlog_days", 7))
+        return (datetime.now(timezone.utc) - timedelta(days=giorni)).isoformat(timespec="seconds")
 
-        Senza questo elenco la soglia varrebbe solo per le offerte raccolte nel
-        giro in corso: un'offerta arrivata quando la soglia era alta resterebbe
-        muta per sempre, anche dopo averla abbassata a zero. Le offerte gia'
-        annunciate restano fuori anche se l'avviso e' stato tolto dall'elenco,
-        perche' la riga rimane come memoria.
+    def mai_annunciate(self, escludi: set[int]) -> list[dict[str, Any]]:
+        """Le offerte arrivate di recente che non hanno mai prodotto un avviso.
+
+        Serve a far valere un cambio di soglia su quello che c'e' gia': senza,
+        un'offerta arrivata quando la soglia era alta resterebbe muta per
+        sempre, anche dopo averla abbassata. Le offerte gia' annunciate restano
+        fuori anche se l'avviso e' stato tolto dall'elenco, perche' la riga
+        rimane come memoria.
+
+        La finestra temporale non e' un dettaglio, e' la differenza fra un
+        recupero e un rubinetto aperto: senza, con la soglia bassa questa
+        funzione restituiva l'intero archivio e ne partivano dieci per ciclo -
+        duecento avvisi all'ora - finche' non era esaurito, comprese offerte di
+        un mese prima. Un annuncio di tre settimane fa non e' una novita': se
+        interessa lo si trova nell'elenco delle offerte.
         """
         if self.active_cv() is None:
             return []
@@ -622,9 +635,10 @@ class Pipeline:
             "SELECT j.*, m.score, m.breakdown_json, m.search_id FROM match m "
             "JOIN job j ON j.id = m.job_id "
             "WHERE m.cv_id = ? AND j.is_archived = 0 "
+            "  AND j.first_seen_at >= ? "
             "  AND NOT EXISTS (SELECT 1 FROM notification n WHERE n.job_id = j.id) "
             "ORDER BY m.score DESC LIMIT ?",
-            (self._cv_id, self.MAI_ANNUNCIATE),
+            (self._cv_id, self.finestra_arretrato(), self.MAI_ANNUNCIATE),
         )
         arretrato = []
         for riga in righe:
@@ -643,12 +657,20 @@ class Pipeline:
     # Offerte che aspettano un giudizio: sopra soglia e senza `llm` nel
     # dettaglio. Sta qui una volta sola perche' la usano sia il ciclo che il
     # conteggio mostrato nelle impostazioni.
+    # Chi aspetta il modello: sopra soglia, senza un giudizio e senza il segno
+    # di chi ha svuotato la coda a mano. Il segno sta dentro il dettaglio del
+    # punteggio e non e' un giudizio finto: un giudizio finto finirebbe nella
+    # scheda dell'offerta e nei conti, questo no.
+    SENZA_GIUDIZIO = (
+        "  AND json_extract(m.breakdown_json, '$.llm') IS NULL "
+        "  AND json_extract(m.breakdown_json, '$.llm_saltata') IS NULL "
+    )
+
     SQL_SENZA_GIUDIZIO = (
         "SELECT j.id, j.title, j.company, j.description, j.location, j.city, "
         "       j.country, j.remote, j.department, m.score, m.breakdown_json "
         "FROM match m JOIN job j ON j.id = m.job_id "
-        "WHERE m.cv_id = ? AND j.is_archived = 0 AND m.score >= ? "
-        "  AND json_extract(m.breakdown_json, '$.llm') IS NULL "
+        "WHERE m.cv_id = ? AND j.is_archived = 0 AND m.score >= ? " + SENZA_GIUDIZIO
     )
 
     # Pausa fra una valutazione e l'altra. Non e' prudenza generica: le chiavi
@@ -722,11 +744,39 @@ class Pipeline:
             return 0
         riga = db.query_one(
             "SELECT COUNT(*) AS n FROM match m JOIN job j ON j.id = m.job_id "
-            "WHERE m.cv_id = ? AND j.is_archived = 0 AND m.score >= ? "
-            "  AND json_extract(m.breakdown_json, '$.llm') IS NULL",
+            "WHERE m.cv_id = ? AND j.is_archived = 0 AND m.score >= ? " + self.SENZA_GIUDIZIO,
             (self._cv_id, db.get_setting_float("llm_min_lexical", 50)),
         )
         return riga["n"] if riga else 0
+
+    def svuota_coda_llm(self) -> int:
+        """Toglie dalla coda del modello le offerte che la stanno aspettando.
+
+        Non cancella niente e non inventa giudizi: mette un segno nel dettaglio
+        del punteggio, e chi pesca dalla coda salta le offerte che lo portano.
+        Serve quando la coda e' lunga come l'archivio - millesettecento offerte
+        a quattro secondi l'una sono giorni di richieste - e quello che si vuole
+        e' ripartire da qui in avanti.
+
+        Un ricalcolo dei punteggi riscrive il dettaglio da zero, quindi rimette
+        in coda quello che si e' saltato: e' anche il modo di tornare indietro.
+        """
+        if self.active_cv() is None:
+            return 0
+        cursore = db.execute(
+            "UPDATE match SET breakdown_json = "
+            "  json_set(breakdown_json, '$.llm_saltata', json('true')) "
+            "WHERE cv_id = ? AND json_valid(breakdown_json) "
+            "  AND job_id IN (SELECT id FROM job WHERE is_archived = 0) "
+            "  AND score >= ? "
+            "  AND json_extract(breakdown_json, '$.llm') IS NULL "
+            "  AND json_extract(breakdown_json, '$.llm_saltata') IS NULL",
+            (self._cv_id, db.get_setting_float("llm_min_lexical", 50)),
+        )
+        quante = cursore.rowcount
+        if quante:
+            log.info("coda del livello semantico svuotata: %d offerte non verranno lette", quante)
+        return quante
 
     async def refine_with_llm(self, scored: list[dict[str, Any]] | None = None) -> int:
         """Fa rileggere dal modello le offerte piu' promettenti.

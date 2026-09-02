@@ -77,6 +77,12 @@ DEFAULT_SETTINGS: dict[str, str] = {
     "notify_email_to": os.environ.get("NOTIFY_EMAIL_TO", ""),
     # Non notificare più di N offerte per ciclo (evita valanghe al primo avvio).
     "notify_max_per_cycle": "10",
+    # Quanto indietro guardare quando si recuperano le offerte mai annunciate.
+    # Serve a far valere un cambio di soglia su quello che c'e' gia', senza che
+    # abbassarla trasformi tutto l'archivio in una fila di avvisi: un annuncio
+    # arrivato tre settimane fa non e' una novita', e sta nell'elenco delle
+    # offerte, che e' il posto giusto per sfogliare l'archivio.
+    "notify_backlog_days": "7",
     # Intervallo minimo fra due notifiche per la stessa offerta (ore).
     "notify_cooldown_hours": "24",
     # Motore semantico opzionale (richiede una chiave del fornitore scelto).

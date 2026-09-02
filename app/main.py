@@ -201,6 +201,25 @@ def get_status() -> dict[str, Any]:
         "SELECT AVG(m.score) AS media FROM match m JOIN job j ON j.id = m.job_id "
         "WHERE m.cv_id = ? AND j.is_archived = 0", (cv_id,)
     )
+    # Quante offerte sono in attesa di un avviso, con le soglie in vigore:
+    # e' lo stesso insieme che guarda `mai_annunciate`, quindi e' il numero di
+    # avvisi che partiranno. Mostrarlo accanto alla soglia evita la sorpresa di
+    # abbassarla e ritrovarsi centinaia di avvisi: il conto si vede prima.
+    # `COALESCE` sulla soglia della ricerca perche' quella, quando c'e', vince.
+    in_attesa = db.query_one(
+        "SELECT COUNT(*) AS n FROM match m JOIN job j ON j.id = m.job_id "
+        "LEFT JOIN search s ON s.id = m.search_id "
+        "WHERE m.cv_id = ? AND j.is_archived = 0 AND j.first_seen_at >= ? "
+        "  AND m.score >= COALESCE(s.min_match, ?) "
+        "  AND NOT EXISTS (SELECT 1 FROM notification n WHERE n.job_id = j.id)",
+        (cv_id, pipeline.finestra_arretrato(), threshold),
+    )
+    # Le ricerche con una soglia propria: quella batte questa, e senza dirlo
+    # sembra che la soglia generale non funzioni.
+    proprie = db.query(
+        "SELECT name, min_match FROM search WHERE enabled = 1 AND min_match IS NOT NULL "
+        "ORDER BY min_match")
+
     # Il pannello raggruppa per offerta, perche' la stessa offerta genera una
     # riga per canale (desktop, email, Telegram). Contare le righe faceva
     # annunciare al badge il doppio o il triplo delle voci poi elencate.
@@ -215,7 +234,14 @@ def get_status() -> dict[str, Any]:
         "fresh_24h": fresche["n"] or 0,
         "fresh_above_threshold": fresche["sopra"] or 0,
         "avg_score": round(media["media"]) if media["media"] is not None else None,
+        "pending_notifications": in_attesa["n"],
+        "search_thresholds": [dict(r) for r in proprie],
         "unseen_notifications": unseen["n"],
+        # Se c'e' un controllo in corso lo dice anche qui, dove passa qualunque
+        # pagina appena aperta: e' cosi' che la barra si riattacca a un giro
+        # partito prima, o partito da un'altra parte.
+        "running": pipeline.corsa is not None,
+        "progress": dict(pipeline.corsa) if pipeline.corsa is not None else None,
         "scheduler": scheduler.status(),
         "last_run": pipeline.last_summary,
         "smtp_configured": notify.is_configured(),
@@ -1204,6 +1230,17 @@ async def test_llm() -> dict[str, Any]:
     inizio = time.monotonic()
     ok, messaggio = await asyncio.to_thread(llm.prova, provider, modello)
     return {"ok": ok, "message": messaggio, "secondi": round(time.monotonic() - inizio, 1)}
+
+
+@app.delete("/api/llm/queue")
+def svuota_coda_llm() -> dict[str, int]:
+    """Svuota la coda delle offerte in attesa del modello semantico.
+
+    Le offerte restano dove sono con il loro punteggio lessicale: quello che
+    cambia e' che il modello non le leggera'. Un ricalcolo dei punteggi le
+    rimette in coda.
+    """
+    return {"cleared": pipeline.svuota_coda_llm()}
 
 
 @app.get("/api/llm/models")

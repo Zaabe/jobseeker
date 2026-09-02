@@ -223,6 +223,17 @@ const T = {
     urlFirst: "Incolla un indirizzo", back: "Collegamento al server ripristinato",
     bootFailed: "Avvio non riuscito", providersRun: "fonti interrogate", newJobs: "offerte nuove",
     byEmail: "per email", onTelegram: "su Telegram",
+    llmClearQueue: "Svuota la coda",
+    llmClearAsk: "Svuotare la coda del modello?",
+    llmClearBody: "Le offerte in attesa restano dove sono, con il loro punteggio lessicale: il modello non le leggerà. Un ricalcolo dei punteggi le rimette in coda.",
+    llmQueueCleared: "offerte tolte dalla coda",
+    cvWaitTitle: "Lettura del curriculum",
+    cvWaitBody: "Estrazione di competenze, studi ed esperienza, e ricalcolo dei punteggi. Su un archivio grande può richiedere un minuto.",
+    cvWaitStop: "Attesa interrotta. La lettura poteva essere già a buon punto: se il profilo compare nell’elenco, è stato salvato.",
+    pendingNone: "Nessuna offerta in attesa di avviso",
+    pendingSome: "in attesa di avviso con questa soglia",
+    pendingMany: "Sono molte: arriveranno un po’ per ciclo. Alza la soglia per ridurle.",
+    searchOverrides: "Queste ricerche hanno una soglia propria, che vince su questa:",
     runPhaseSources: "Fonti", runPhaseScores: "Punteggi…", runPhaseAi: "Valutazione IA…",
     runPhaseNotify: "Avvisi…", runStarting: "Avvio…",
     sourceNextCycle: "Un controllo è in corso: questa fonte verrà interrogata al prossimo.",
@@ -436,6 +447,17 @@ const T = {
     urlFirst: "Paste a URL", back: "Connection to the server restored",
     bootFailed: "Startup failed", providersRun: "sources queried", newJobs: "new postings",
     byEmail: "by email", onTelegram: "on Telegram",
+    llmClearQueue: "Empty the queue",
+    llmClearAsk: "Empty the model's queue?",
+    llmClearBody: "The waiting postings stay where they are with their lexical score: the model just will not read them. Rescoring puts them back in the queue.",
+    llmQueueCleared: "postings taken out of the queue",
+    cvWaitTitle: "Reading the résumé",
+    cvWaitBody: "Extracting skills, education and experience, then rescoring the postings. On a large archive this can take a minute.",
+    cvWaitStop: "Stopped waiting. The reading may already have been under way: if the profile shows up in the list, it was saved.",
+    pendingNone: "No postings waiting to be announced",
+    pendingSome: "waiting to be announced at this threshold",
+    pendingMany: "That is a lot: they arrive a few per cycle. Raise the threshold to cut them down.",
+    searchOverrides: "These searches have their own threshold, which wins over this one:",
     runPhaseSources: "Sources", runPhaseScores: "Scores…", runPhaseAi: "AI review…",
     runPhaseNotify: "Alerts…", runStarting: "Starting…",
     sourceNextCycle: "A check is running: this source will be queried on the next one.",
@@ -523,6 +545,10 @@ const state = {
   cvManual: {},
   // Chi sta aspettando la risposta di una conferma, finche' e' aperta.
   conferma: null,
+  // Vero mentre e' aperta una schermata di attesa che blocca la pagina: Esc e
+  // il fondale non devono poterla chiudere, perche' quello che sta sotto sta
+  // cambiando e non ha senso guardarlo a metà.
+  bloccante: false,
   settings: {},
   meta: { smtp: {}, telegram: {}, llm: {} },
   segreti: [],
@@ -2107,14 +2133,37 @@ function wireCv() {
 async function uploadCv(file) {
   const form = new FormData();
   form.append("file", file);
+  const controllo = new AbortController();
+  const attesa = schermataAttesa({
+    titolo: t("cvWaitTitle"),
+    testo: `${file.name} — ${t("cvWaitBody")}`,
+    annulla: () => controllo.abort(),
+  });
   $("#cv-status").textContent = `${t("reading")} ${file.name}…`;
   try {
-    const res = await api("/api/cv", { method: "POST", body: form });
+    const res = await api("/api/cv", { method: "POST", body: form, signal: controllo.signal });
     toast(`${res.skills.length} ${t("skillsFound")}, ${res.rescored} ${t("jobsRescored")}`);
-    await Promise.all([loadCv(), loadStatus()]);
   } catch (e) {
+    // "Annulla" smette di aspettare, non ferma il server: la lettura era
+    // partita e puo' arrivare in fondo comunque. Dirlo e' meglio che lasciar
+    // credere che non sia successo niente.
+    if (e.name === "AbortError") {
+      toast(t("cvWaitStop"));
+      // Il server sta ancora leggendo, e quanto ci mette non lo sappiamo: si
+      // rilegge l'elenco due volte a distanza, cosi' il profilo compare da
+      // solo quando la lettura arriva in fondo. Se si e' andati altrove non si
+      // ricarica niente.
+      [6000, 16000].forEach((ms) =>
+        setTimeout(() => { if (state.view === "cv") loadCv(); }, ms));
+    } else {
+      toast(e.message, "bad");
+    }
+  } finally {
+    attesa.chiudi();
     $("#cv-status").textContent = "";
-    toast(e.message, "bad");
+    // Si rilegge sempre, anche dopo un annullo: l'elenco deve dire come stanno
+    // le cose, non come si sperava che stessero.
+    await Promise.all([loadCv(), loadStatus()]);
   }
 }
 
@@ -2203,6 +2252,27 @@ function appresoHTML() {
 }
 
 
+/* Quante offerte partirebbero come avviso con la soglia attuale, e quali
+   ricerche hanno una soglia propria - che vince su quella generale, ed e' il
+   modo piu' facile per credere che la soglia generale non funzioni. */
+function attesaHtml() {
+  const st = state.status || {};
+  const quante = st.pending_notifications;
+  const proprie = st.search_thresholds || [];
+  const cap = Number(state.settings.notify_max_per_cycle || 10);
+  const righe = [];
+  if (typeof quante === "number") {
+    righe.push(quante === 0
+      ? t("pendingNone")
+      : `<b>${quante}</b> ${t("pendingSome")}${quante > cap ? ` — ${t("pendingMany")}` : ""}`);
+  }
+  if (proprie.length) {
+    righe.push(`${t("searchOverrides")} ${proprie
+      .map((r) => `${esc(r.name)} ${Math.round(r.min_match)}%`).join(", ")}`);
+  }
+  return righe.join("<br>");
+}
+
 function renderSettings() {
   const s = state.settings;
   const m = state.meta;
@@ -2258,7 +2328,10 @@ function renderSettings() {
         <div class="rows">
           ${numRow("poll_interval_sec", t("sInterval"), t("sIntervalHelp"))}
           <div class="row">
-            <div class="row-label"><b>${t("sThreshold")}</b></div>
+            <!-- Sotto la soglia si vede quanti avvisi produrrebbe: e' il numero
+                 che mancava quando abbassarla a zero significava centinaia di
+                 avvisi, scoperti solo quando arrivavano. -->
+            <div class="row-label"><b>${t("sThreshold")}</b><span id="soglia-attesa">${attesaHtml()}</span></div>
             <div class="row-control">
               <input type="range" min="0" max="100" step="1" data-set="min_match_notify" data-type="range"
                 value="${s.min_match_notify}" style="${sliderBg(s.min_match_notify)}">
@@ -2363,7 +2436,11 @@ function renderSettings() {
                 : m.llm.pending ? ` ${m.llm.pending} ${t("aiWaiting")}` : ` ${t("aiDone")}`)
             : esc(state.lang === "it"
               ? `Fornitore non utilizzabile — ${m.llm.reason || ""}. I punteggi vengono calcolati dal motore lessicale, che non ha bisogno di chiavi né di connessione.`
-              : `Provider unusable — ${m.llm.reason || ""}. Scores come from the lexical engine, which needs neither a key nor a connection.`)}</div>
+              : `Provider unusable — ${m.llm.reason || ""}. Scores come from the lexical engine, which needs neither a key nor a connection.`)}
+          ${m.llm.pending ? `<div class="coda-azione">
+            <button class="btn small" type="button" id="llm-svuota">${t("llmClearQueue")}</button>
+            <span class="legend">${t("llmClearBody")}</span>
+          </div>` : ""}</div>
       </section>
 
       <section>
@@ -2520,8 +2597,14 @@ function wireSettings() {
         el.style.cssText = sliderBg(el.value);
         const out = el.parentElement.querySelector("output");
         if (out) out.textContent = `${el.value}%`;
-        salvaQuandoFermo(key, Number(el.value), () => {
-          if (key === "min_match_notify") loadStatus();
+        salvaQuandoFermo(key, Number(el.value), async () => {
+          if (key !== "min_match_notify") return;
+          // Il conto delle offerte in attesa dipende dalla soglia appena
+          // spostata: si rilegge e si riscrive sul posto, senza ridisegnare
+          // tutta la pagina sotto le dita di chi sta trascinando.
+          await loadStatus();
+          const dove = $("#soglia-attesa");
+          if (dove) dove.innerHTML = attesaHtml();
         });
       };
     } else {
@@ -2613,6 +2696,25 @@ function wireSettings() {
     } catch (e) {
       toast(e.message, "bad");
       azzera.disabled = false;
+    }
+  };
+
+  /* Svuotare la coda del modello. Non e' distruttivo - i punteggi restano, e
+     un ricalcolo rimette tutto in coda - quindi la conferma non e' rossa: serve
+     solo a non farlo per sbaglio su qualche centinaio di offerte. */
+  const svuotaCoda = $("#llm-svuota");
+  if (svuotaCoda) svuotaCoda.onclick = async () => {
+    if (!await chiediConferma({ titolo: t("llmClearAsk"), testo: t("llmClearBody"),
+                                conferma: t("llmClearQueue"), pericolo: false })) return;
+    svuotaCoda.disabled = true;
+    try {
+      const r = await api("/api/llm/queue", { method: "DELETE" });
+      toast(`${r.cleared} ${t("llmQueueCleared")}`);
+      await loadSettings(false);
+      renderSettings();
+    } catch (e) {
+      toast(e.message, "bad");
+      svuotaCoda.disabled = false;
     }
   };
 
@@ -2832,6 +2934,48 @@ function chiediConferma({ titolo, testo = "", conferma, pericolo = true, parola 
   });
 }
 
+/* Schermata di attesa che blocca la pagina.
+
+   Serve per un'operazione che cambia i dati sotto i piedi di tutto il resto:
+   mentre il curriculum viene letto e i punteggi ricalcolati, cliccare altrove
+   vorrebbe dire guardare numeri che stanno per cambiare, o far partire una
+   seconda operazione sopra la prima. Non si chiude col fondale ne' con Esc:
+   l'unica uscita e' "Annulla", rosso perche' interrompe qualcosa.
+
+   Restituisce due maniglie: `aggiorna` per cambiare la riga di testo mentre si
+   aspetta, `chiudi` per togliere la schermata. */
+function schermataAttesa({ titolo, testo = "", annulla = null }) {
+  state.bloccante = true;
+  $("#overlay").innerHTML = `
+    <div class="modal-scrim">
+      <div class="backdrop"></div>
+      <div class="modal attesa" role="alertdialog" aria-busy="true" aria-live="polite">
+        <div class="modal-head">
+          <span class="attesa-cerchio"><i class="spin"></i></span>
+          <div>
+            <h2>${esc(titolo)}</h2>
+            <p id="attesa-testo">${esc(testo)}</p>
+          </div>
+        </div>
+        ${annulla ? `<div class="modal-foot">
+          <button class="btn danger" type="button" id="attesa-annulla">${t("modalCancel")}</button>
+        </div>` : ""}
+      </div>
+    </div>`;
+  const bottone = $("#attesa-annulla");
+  if (bottone) {
+    bottone.onclick = () => {
+      bottone.disabled = true;
+      annulla();
+    };
+    bottone.focus();
+  }
+  return {
+    aggiorna: (riga) => { const p = $("#attesa-testo"); if (p) p.textContent = riga; },
+    chiudi: () => { state.bloccante = false; closeOverlay(); },
+  };
+}
+
 function closeOverlay() {
   $("#overlay").innerHTML = "";
   // Chi aspettava una risposta la riceve comunque: senza, chiudere col fondale
@@ -2847,6 +2991,9 @@ function closeOverlay() {
 /* Il pulsante in alto a destra chiude, tranne quando si e' entrati nel
    dettaglio da un altro pannello: in quel caso ci riporta indietro. */
 function tornaIndietroOChiudi() {
+  // Una schermata di attesa si chiude da sola quando l'operazione finisce, o
+  // con il suo pulsante: Esc e la X non c'entrano.
+  if (state.bloccante) return;
   const indietro = state.ritorno;
   if (!indietro) { closeOverlay(); return; }
   state.ritorno = null;
@@ -3256,6 +3403,15 @@ async function loadStatus() {
   const status = await api("/api/status");
   state.status = status;
   state.nextRunAt = status.scheduler.next_run ? new Date(status.scheduler.next_run) : null;
+
+  /* Un controllo puo' essere partito prima che questa pagina esistesse: da
+     un'altra scheda, dallo scheduler, o da questa stessa pagina prima di un
+     ricaricamento. Lo stato sta sul server, quindi basta chiederlo - ed e' il
+     motivo per cui la barra non muore quando la pagina si riapre. */
+  if (status.running && !state.pollCorsa) {
+    state.corsa = status.progress || null;
+    seguiControllo();
+  }
 
   const count = status.unseen_notifications;
   $("#bell-count").hidden = !count;
