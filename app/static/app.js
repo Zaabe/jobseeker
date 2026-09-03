@@ -18,13 +18,15 @@ const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
 const T = {
   it: {
     overview: "Riepilogo", jobs: "Offerte", history: "Storico", searches: "Ricerche",
-    sources: "Fonti", dictionaries: "Dizionari", cv: "Curriculum", settings: "Impostazioni",
+    sources: "Fonti", dictionaries: "Dizionari", cv: "Curriculum",
+    logs: "Log", settings: "Impostazioni",
     subOverview: "Come sta andando la ricerca in questo momento.",
     subJobs: "Tutte le offerte raccolte dalle fonti, ordinate per compatibilità con il tuo profilo.",
     subHistory: "Le offerte a cui hai assegnato uno stato.",
     subSearches: "Le parole chiave che decidono quali offerte vengono archiviate.",
     subSources: "I portali che JobSeeker interroga a ogni ciclo.",
     subDictionaries: "Liste di parole con un nome, da riusare su pi\u00f9 ricerche.",
+    subLogs: "Quello che sta facendo l'applicazione, riga per riga, mentre lo fa.",
     subCv: "Il profilo con cui vengono confrontate le offerte.",
     subSettings: "Frequenza dei controlli, notifiche e composizione del punteggio.",
     run: "Controlla ora", running: "Controllo…", toggleSidebar: "Comprimi la barra laterale",
@@ -33,6 +35,8 @@ const T = {
     searchPh: "Titolo, azienda, parola nel testo…", cityPh: "Milano, Pavia…",
     allSources: "Tutte le fonti", minMatch: "Match minimo",
     sortScore: "Compatibilità", sortDate: "Data", sortCompany: "Azienda",
+    onlyUntouched: "Solo non gestite",
+    onlyUntouchedHint: "Nasconde le offerte a cui hai gia\u2019 dato uno stato.",
     newBadge: "NEW", results: "risultati", result: "risultato", loadMore: "Carica altre offerte",
     noMoreJobs: "Non ci sono altre offerte al momento",
     emptyJobsTitle: "Nessuna offerta con questi filtri",
@@ -250,6 +254,12 @@ const T = {
     variantsNone: "Nessuna variante meccanica",
     variantsAllTaken: "Le hai prese tutte", variantsAiNone: "Il modello non ha proposto niente di nuovo",
     fromSearches: "dalle ricerche:",
+    logLive: "In diretta", logPaused: "In pausa", logPause: "Ferma",
+    logResume: "Riprendi", logToBottom: "Vai in fondo", logClear: "Pulisci",
+    logAll: "Tutto", logWarn: "Avvisi", logErr: "Errori",
+    logLines: "righe", logDropped: "righe perse mentre non guardavi",
+    logEmpty: "Non e\u2019 ancora passato niente. Le righe compaiono qui appena l\u2019applicazione fa qualcosa.",
+    logNote: "Le ultime 2000 righe, quelle che il contenitore scrive su stdout. Da qui si legge soltanto.",
     wipeJobs: "Cancella le offerte",
     wipeJobsAsk: "Cancellare le offerte raccolte?",
     wipeJobsBody: "Spariscono tutte le offerte in archivio tranne quelle a cui hai dato uno stato \u2014 salvate, candidato, colloquio, offerta, rifiutate, scartate: quelle restano, insieme a quello che il motore ha imparato da loro. Le fonti ritroveranno le altre al prossimo controllo, se sono ancora pubblicate.",
@@ -267,7 +277,7 @@ const T = {
     pendingNone: "Nessuna offerta in attesa di avviso",
     pendingSome: "in attesa di avviso con questa soglia",
     pendingMany: "Sono molte: arriveranno un po’ per ciclo. Alza la soglia per ridurle.",
-    searchOverrides: "Queste ricerche hanno una soglia propria, che vince su questa:",
+    searchOverrides: "Queste ricerche hanno una soglia propria, che vince su questa per le offerte che trovano loro:",
     runPhaseSources: "Fonti", runPhaseScores: "Punteggi…", runPhaseAi: "Valutazione IA…",
     runPhaseNotify: "Avvisi…", runStarting: "Avvio…",
     sourceNextCycle: "Un controllo è in corso: questa fonte verrà interrogata al prossimo.",
@@ -276,13 +286,15 @@ const T = {
   },
   en: {
     overview: "Overview", jobs: "Jobs", history: "Pipeline", searches: "Searches",
-    sources: "Sources", dictionaries: "Dictionaries", cv: "Profile", settings: "Settings",
+    sources: "Sources", dictionaries: "Dictionaries", cv: "Profile",
+    logs: "Logs", settings: "Settings",
     subOverview: "How the search is doing right now.",
     subJobs: "Every posting collected from your sources, ranked by match with your profile.",
     subHistory: "Postings you have given a status to.",
     subSearches: "The keywords that decide which postings get stored.",
     subSources: "The boards JobSeeker queries on every cycle.",
     subDictionaries: "Named word lists you can reuse across searches.",
+    subLogs: "What the application is doing, line by line, as it does it.",
     subCv: "The profile every posting is compared against.",
     subSettings: "Check frequency, notifications and score composition.",
     run: "Check now", running: "Checking…", toggleSidebar: "Collapse sidebar",
@@ -291,6 +303,8 @@ const T = {
     searchPh: "Title, company, any word…", cityPh: "Milan, Pavia…",
     allSources: "All sources", minMatch: "Min. match",
     sortScore: "Match", sortDate: "Date", sortCompany: "Company",
+    onlyUntouched: "Only untouched",
+    onlyUntouchedHint: "Hides the postings you have already given a status.",
     newBadge: "NEW", results: "results", result: "result", loadMore: "Load more postings",
     noMoreJobs: "No more postings right now",
     emptyJobsTitle: "No postings match these filters",
@@ -508,6 +522,12 @@ const T = {
     variantsNone: "No mechanical variant",
     variantsAllTaken: "You have taken them all", variantsAiNone: "The model proposed nothing new",
     fromSearches: "from the searches:",
+    logLive: "Live", logPaused: "Paused", logPause: "Pause",
+    logResume: "Resume", logToBottom: "Jump to end", logClear: "Clear",
+    logAll: "All", logWarn: "Warnings", logErr: "Errors",
+    logLines: "lines", logDropped: "lines lost while you were away",
+    logEmpty: "Nothing has come through yet. Lines appear here as soon as the application does something.",
+    logNote: "The last 2000 lines, the ones the container writes to stdout. This is read-only.",
     wipeJobs: "Delete the postings",
     wipeJobsAsk: "Delete the collected postings?",
     wipeJobsBody: "Every posting in the archive goes, except the ones you gave a status \u2014 saved, applied, interview, offer, rejected, discarded: those stay, along with what the engine learned from them. The sources will find the others again on the next check, if they are still published.",
@@ -525,7 +545,7 @@ const T = {
     pendingNone: "No postings waiting to be announced",
     pendingSome: "waiting to be announced at this threshold",
     pendingMany: "That is a lot: they arrive a few per cycle. Raise the threshold to cut them down.",
-    searchOverrides: "These searches have their own threshold, which wins over this one:",
+    searchOverrides: "These searches have their own threshold, which wins over this one for the postings they find:",
     runPhaseSources: "Sources", runPhaseScores: "Scores…", runPhaseAi: "AI review…",
     runPhaseNotify: "Alerts…", runStarting: "Starting…",
     sourceNextCycle: "A check is running: this source will be queried on the next one.",
@@ -543,6 +563,7 @@ const ICONS = {
   cv: "M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8zM14 3v5h5M9 13h6M9 17h4",
   dictionaries: "M12 6.6C10.6 5.5 8.6 5 6 5H4.2v12.6H6c2.6 0 4.6.5 6 1.6M12 6.6C13.4 5.5 15.4 5 18 5h1.8v12.6H18c-2.6 0-4.6.5-6 1.6M12 6.6v14.2",
   settings: "M4 7h10M18 7h2M4 17h4M12 17h8M14 4v6M8 14v6",
+  logs: "M3.5 5.5h17v13h-17zM3.5 8.5h17M6.5 12l2.5 2.2-2.5 2.2M11.5 16.4h5",
   spark: "M12 3l2.2 5.3L20 9.6l-4.2 3.8 1.1 5.6L12 16.3 7.1 19l1.1-5.6L4 9.6l5.8-1.3z",
   eye: "M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12ZM12 9.2a2.8 2.8 0 1 0 0 5.6 2.8 2.8 0 0 0 0-5.6z",
   target: "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8M12 11.4a.6.6 0 1 0 0 1.2.6.6 0 0 0 0-1.2",
@@ -558,7 +579,7 @@ const ICONS = {
   external: "M8 5h11v11M19 5L6 18",
 };
 
-const VIEWS = ["overview", "jobs", "history", "searches", "dictionaries", "sources", "cv", "settings"];
+const VIEWS = ["overview", "jobs", "history", "searches", "dictionaries", "sources", "cv", "logs", "settings"];
 const STATUSES = ["saved", "applied", "interview", "offer", "rejected", "discarded"];
 // Stati per cui ha senso chiedere il motivo: sono quelli da cui l'app impara.
 const STATI_NEGATIVI = ["discarded", "rejected"];
@@ -604,7 +625,9 @@ const state = {
   lang: "it",
   collapsed: false,
   jobs: { items: [], total: 0, offset: 0, limit: 30 },
-  filters: { q: "", city: "", minScore: 0, provider: "", sort: "score" },
+  // `soloNuove` nasconde le offerte che hanno gia' uno stato: e' il filtro con
+  // cui si smaltisce l'elenco senza ritrovarsi davanti quelle gia' viste.
+  filters: { q: "", city: "", minScore: 0, provider: "", sort: "score", soloNuove: false },
   providers: [],
   searches: [],
   dictionaries: [],
@@ -623,6 +646,11 @@ const state = {
   meta: { smtp: {}, telegram: {}, llm: {} },
   segreti: [],
   diagnostics: null,
+  // La sezione «Log»: righe gia' ricevute, numero dell'ultima, se sta
+  // seguendo e con che filtro. Vive nello stato e non nel DOM, cosi' tornare
+  // sulla sezione non ricomincia da capo.
+  log: { righe: [], ultimo: 0, vivo: true, livello: "", perse: 0, inFondo: true },
+  pollLog: null,
   appFilter: "",
   form: {},
   detected: null,
@@ -1210,6 +1238,10 @@ function renderJobsView() {
             ${[["score", "sortScore"], ["date", "sortDate"], ["company", "sortCompany"]].map(([k, l]) =>
               `<button type="button" data-sort="${k}" class="${f.sort === k ? "on" : ""}">${t(l)}</button>`).join("")}
           </div>
+          <button class="btn small filtro-stato ${f.soloNuove ? "on" : ""}" type="button"
+                  id="f-untouched" title="${t("onlyUntouchedHint")}">
+            ${svg(ICONS.check, 12, 'stroke-width="2.6"')} ${t("onlyUntouched")}
+          </button>
           <span class="count-note" id="jobs-count"></span>
           <!-- Accanto al numero di risultati, perche' e' quello che si guarda
                quando l'elenco e' diventato ingestibile. -->
@@ -1274,7 +1306,7 @@ function renderJobs(append = false) {
     </div>`;
     const clear = $("#clear-filters");
     if (clear) clear.onclick = () => {
-      state.filters = { q: "", city: "", minScore: 0, provider: "", sort: "score" };
+      state.filters = { q: "", city: "", minScore: 0, provider: "", sort: "score", soloNuove: false };
       renderJobsView();
       loadJobs();
     };
@@ -1311,6 +1343,14 @@ function wireJobFilters() {
     state.filters[key] = e.target.value;
     clearTimeout(debounce);
     debounce = setTimeout(() => loadJobs(), 320);
+  };
+  const soloNuove = $("#f-untouched");
+  if (soloNuove) soloNuove.onclick = () => {
+    state.filters.soloNuove = !state.filters.soloNuove;
+    // Si accende sul posto invece di ridisegnare tutta la scheda dei filtri:
+    // ridisegnarla porterebbe via il testo che si sta scrivendo nei campi.
+    soloNuove.classList.toggle("on", state.filters.soloNuove);
+    loadJobs();
   };
   $("#f-q").oninput = typed("q");
   $("#f-city").oninput = typed("city");
@@ -1387,6 +1427,8 @@ async function loadJobs(append = false) {
     limit: state.jobs.limit, offset: state.jobs.offset,
   });
   if (f.provider) params.set("provider_id", f.provider);
+  // "none" e' come il server chiama le offerte senza uno stato.
+  if (f.soloNuove) params.set("status", "none");
   const data = await api(`/api/jobs?${params}`);
   state.jobs.items = data.items;
   state.jobs.total = data.total;
@@ -1748,6 +1790,146 @@ function apriModaleDizionario(esistente = null) {
 
   state.overlayRedraw = draw;
   draw();
+}
+
+/* ---------------------------------------------------------------- log */
+
+/* Quante righe tenere nella pagina. Il server ne conserva duemila; tenerne di
+   piu' qui non servirebbe a niente e renderebbe lo scorrimento pesante. */
+const LOG_MAX_RIGHE = 2000;
+const LOG_RITMO = 2000;
+
+function fermaPollingLog() {
+  if (state.pollLog) { clearInterval(state.pollLog); state.pollLog = null; }
+}
+
+async function loadLogs() {
+  // Entrando nella sezione si riparte dall'ultima riga che si aveva: se e'
+  // passato del tempo il server risponde comunque con le ultime, e lo dice.
+  renderLogs();
+  await aggiornaLog();
+  fermaPollingLog();
+  state.pollLog = setInterval(() => {
+    // Il polling vive finche' si sta guardando: cambiare sezione lo spegne.
+    if (state.view !== "logs") { fermaPollingLog(); return; }
+    if (state.log.vivo) aggiornaLog();
+  }, LOG_RITMO);
+}
+
+async function aggiornaLog() {
+  const s = state.log;
+  try {
+    const params = new URLSearchParams({ after: s.ultimo, limit: 400 });
+    if (s.livello) params.set("level", s.livello);
+    const r = await api(`/api/logs?${params}`);
+    if (state.view !== "logs") return;
+    s.perse += r.dropped || 0;
+    if (r.lines.length) {
+      s.righe = s.righe.concat(r.lines).slice(-LOG_MAX_RIGHE);
+      s.ultimo = r.last;
+      disegnaRigheLog(r.lines);
+    }
+    aggiornaBarraLog();
+  } catch (e) {
+    // Un server che non risponde lo dice gia' il resto dell'interfaccia: qui
+    // si smette di chiedere per un giro invece di riempire la pagina di errori.
+  }
+}
+
+function rigaLogHtml(riga) {
+  const livello = (riga.level || "INFO").toLowerCase();
+  return `<div class="riga-log liv-${esc(livello)}">${esc(riga.text)}</div>`;
+}
+
+function disegnaRigheLog(nuove) {
+  const dove = $("#log-out");
+  if (!dove) return;
+  const vuoto = dove.querySelector(".log-vuoto");
+  if (vuoto) vuoto.remove();
+  dove.insertAdjacentHTML("beforeend", nuove.map(rigaLogHtml).join(""));
+  // Il tetto vale anche sul DOM, non solo sull'array.
+  while (dove.children.length > LOG_MAX_RIGHE) dove.removeChild(dove.firstChild);
+  if (state.log.inFondo) dove.scrollTop = dove.scrollHeight;
+}
+
+function aggiornaBarraLog() {
+  const conto = $("#log-conto");
+  if (conto) {
+    conto.textContent = `${state.log.righe.length} ${t("logLines")}`
+      + (state.log.perse ? ` \u00b7 ${state.log.perse} ${t("logDropped")}` : "");
+  }
+  const stato = $("#log-stato");
+  if (stato) {
+    stato.classList.toggle("fermo", !state.log.vivo);
+    stato.textContent = state.log.vivo ? t("logLive") : t("logPaused");
+  }
+  const giu = $("#log-giu");
+  if (giu) giu.hidden = state.log.inFondo;
+}
+
+function renderLogs() {
+  const s = state.log;
+  $("#view").innerHTML = `
+    <div class="stack" style="gap:12px">
+      <div class="barra-log">
+        <span class="log-spia" id="log-stato">${s.vivo ? t("logLive") : t("logPaused")}</span>
+        <div class="seg" id="log-livelli">
+          ${[["", "logAll"], ["warning", "logWarn"], ["error", "logErr"]].map(([k, l]) =>
+            `<button type="button" data-log-liv="${k}" class="${s.livello === k ? "on" : ""}">${t(l)}</button>`).join("")}
+        </div>
+        <span class="count-note" id="log-conto"></span>
+        <div class="barra-log-azioni">
+          <button class="btn small" type="button" id="log-vivo">${s.vivo ? t("logPause") : t("logResume")}</button>
+          <button class="btn small" type="button" id="log-pulisci">${t("logClear")}</button>
+        </div>
+      </div>
+      <div class="terminale">
+        <div class="terminale-out" id="log-out">${
+          s.righe.length ? s.righe.map(rigaLogHtml).join("")
+            : `<div class="log-vuoto">${t("logEmpty")}</div>`}</div>
+        <button class="btn small terminale-giu" type="button" id="log-giu" hidden>${t("logToBottom")}</button>
+      </div>
+      <p class="legend">${t("logNote")}</p>
+    </div>`;
+
+  const out = $("#log-out");
+  // Chi scorre indietro a leggere non deve vedersi strappare la pagina dalla
+  // riga successiva: l'inseguimento riprende solo quando si torna in fondo.
+  out.onscroll = () => {
+    const inFondo = out.scrollHeight - out.scrollTop - out.clientHeight < 40;
+    if (inFondo !== state.log.inFondo) { state.log.inFondo = inFondo; aggiornaBarraLog(); }
+  };
+  out.scrollTop = out.scrollHeight;
+
+  $("#log-giu").onclick = () => {
+    state.log.inFondo = true;
+    out.scrollTop = out.scrollHeight;
+    aggiornaBarraLog();
+  };
+  $("#log-vivo").onclick = () => {
+    state.log.vivo = !state.log.vivo;
+    $("#log-vivo").textContent = state.log.vivo ? t("logPause") : t("logResume");
+    aggiornaBarraLog();
+    if (state.log.vivo) aggiornaLog();
+  };
+  $("#log-pulisci").onclick = () => {
+    // Pulisce quello che si vede, non quello che il server ha: le righe
+    // vecchie restano li' per chiunque riapra la pagina.
+    state.log.righe = [];
+    state.log.perse = 0;
+    state.log.inFondo = true;
+    renderLogs();
+  };
+  $$("[data-log-liv]").forEach((b) => b.onclick = () => {
+    if (state.log.livello === b.dataset.logLiv) return;
+    // Cambiando filtro si riparte dalle ultime righe di quel livello: le
+    // precedenti non erano state chieste, e mescolarle darebbe un ordine finto.
+    state.log = { ...state.log, livello: b.dataset.logLiv, righe: [], ultimo: 0,
+                  perse: 0, inFondo: true };
+    renderLogs();
+    aggiornaLog();
+  });
+  aggiornaBarraLog();
 }
 
 async function loadSearches() {
@@ -4062,6 +4244,7 @@ const LOADERS = {
   searches: loadSearches,
   sources: loadSources,
   dictionaries: loadDictionaries,
+  logs: loadLogs,
   cv: loadCv,
   settings: async () => {
     await loadSettings(false);
@@ -4088,6 +4271,7 @@ const LOADERS = {
 };
 
 async function switchView(view) {
+  if (view !== "logs") fermaPollingLog();
   state.view = view;
   state.dd = null;
   renderShell();

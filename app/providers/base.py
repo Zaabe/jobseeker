@@ -176,6 +176,11 @@ class SearchSpec:
     # singola ricerca: applicarla a tutte perche' una la richiede farebbe
     # sparire i risultati delle altre.
     location_filter: bool = True
+    # La soglia di avviso di questa ricerca, o None per quella generale. Le
+    # fonti non la guardano - non filtrano per punteggio - ma sta qui perche' e'
+    # una proprieta' della ricerca, e chi decide gli avvisi ha gia' le specs in
+    # mano.
+    min_match: int | None = None
 
     @property
     def query(self) -> str:

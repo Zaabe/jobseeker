@@ -45,18 +45,22 @@ def dispatch(candidates: list[dict[str, Any]]) -> dict[str, Any]:
     email_on = db.get_setting_bool("notify_email_enabled", False)
     desktop_on = db.get_setting_bool("notify_desktop_enabled", True)
 
-    # Ogni ricerca puo' avere la sua soglia, e vince su quella generale per le
-    # offerte che ha trovato lei. Era un campo che si compilava dalla scheda
-    # della ricerca, che veniva salvato, che l'interfaccia mostrava - e che non
-    # leggeva nessuno: metterlo a 99 non cambiava niente.
+    # Ogni ricerca puo' avere la sua soglia. Chi prepara i candidati l'ha gia'
+    # calcolata - dipende da quali ricerche prendono quell'offerta, e quello lo
+    # sa la pipeline - e la scrive in `soglia`.
+    #
+    # Il ripiego su `search_id` resta per chi chiama questa funzione senza,
+    # e vale la soglia della ricerca a cui l'offerta e' attribuita.
     per_ricerca = {
         r["id"]: r["min_match"]
         for r in db.query("SELECT id, min_match FROM search WHERE min_match IS NOT NULL")
     }
 
     def soglia(candidato: dict[str, Any]) -> int:
-        propria = per_ricerca.get(candidato.get("search_id"))
-        return threshold if propria is None else propria
+        propria = candidato.get("soglia")
+        if propria is None:
+            propria = per_ricerca.get(candidato.get("search_id"))
+        return threshold if propria is None else int(propria)
 
     eligible = sorted(
         (c for c in candidates if c["score"] >= soglia(c)),

@@ -51,6 +51,36 @@ SQL_PUNTEGGIO = (
 )
 
 
+class _OffertaArchiviata:
+    """Una riga della tabella `job` con l'interfaccia di un'offerta appena letta.
+
+    Il filtro di pertinenza lavora sulle offerte come le consegnano le fonti.
+    Quando serve rifarlo su qualcosa che sta gia' in archivio - per sapere quali
+    ricerche la prendono, e quindi con che soglia va annunciata - questa classe
+    fa da vestito, invece di duplicare il filtro in una versione "da database"
+    che poi diverge alla prima modifica.
+    """
+
+    __slots__ = ("title", "company", "description", "location", "city", "region",
+                 "country", "remote", "department", "raw")
+
+    def __init__(self, row: Any, raw: dict[str, Any]) -> None:
+        self.title = row["title"] or ""
+        self.company = row["company"] or ""
+        self.description = row["description"] or ""
+        self.location = row["location"] or ""
+        self.city = row["city"] or ""
+        self.region = row["region"] or ""
+        self.country = row["country"] or ""
+        self.department = row["department"] or ""
+        self.remote = bool(row["remote"])
+        self.raw = raw
+
+    def searchable_text(self) -> str:
+        return " \n".join(p for p in (self.title, self.company, self.department,
+                                      self.location, self.description) if p)
+
+
 class Pipeline:
     """Stato condiviso fra le esecuzioni: indice IDF e profilo del curriculum."""
 
@@ -212,6 +242,7 @@ class Pipeline:
                 country=r["country"],
                 remote_ok=bool(r["remote_ok"]),
                 location_filter=bool(r["location_filter"]),
+                min_match=r["min_match"],
             )
             for r in db.query(sql + " ORDER BY id")
         ]
@@ -235,6 +266,42 @@ class Pipeline:
             # Le parole chiave passano: se l'offerta e' comunque fuori, e' la sede.
             return "sede"
         return "parole chiave"
+
+    @staticmethod
+    def _archiviata(row: Any) -> Any:
+        """Un'offerta letta dal database, con l'aspetto che ha appena arrivata.
+
+        Il filtro di pertinenza sa leggere le offerte come le consegnano le
+        fonti; qui ne arriva una dal database, e invece di riscrivere il filtro
+        si riveste la riga.
+        """
+        try:
+            raw = json.loads(row["raw_json"] or "{}")
+        except (ValueError, TypeError):
+            raw = {}
+        return _OffertaArchiviata(row, raw if isinstance(raw, dict) else {})
+
+    def soglia_avviso(self, row: Any, specs: list[SearchSpec]) -> int:
+        """Da che punteggio in su questa offerta merita un avviso.
+
+        Ogni ricerca puo' avere la sua soglia. Un'offerta rientra spesso in piu'
+        di una, e allora vale la piu' bassa fra quelle che la vogliono: se una
+        ricerca la vuole a 40, tacere perche' un'altra ne chiede 95 vorrebbe dire
+        rispondere per una ricerca che non ha chiesto niente. Le ricerche che
+        questa offerta non la prendono non hanno voce in capitolo.
+
+        Prima si guardava `match.search_id`, cioe' la ricerca che aveva
+        totalizzato il punteggio piu' alto - che non e' ne' l'una ne' l'altra
+        cosa, ed e' il motivo per cui la soglia scritta in una ricerca sembrava
+        non contare niente.
+        """
+        generale = db.get_setting_int("min_match_notify", 40)
+        offerta = self._archiviata(row)
+        soglie = [
+            generale if s.min_match is None else s.min_match
+            for s in specs if s.id is not None and self.matches_search(offerta, s)
+        ]
+        return min(soglie) if soglie else generale
 
     @staticmethod
     def _parola_gia_cercata(posting: Any, spec: SearchSpec) -> bool:
@@ -501,10 +568,14 @@ class Pipeline:
             ))
             scored.append({"job": db.row_to_dict(row), "score": punteggio,
                            "breakdown": breakdown,
-                           # Quale ricerca ha prodotto il punteggio: serve alle
-                           # notifiche, perche' ogni ricerca puo' avere la sua
-                           # soglia.
-                           "search_id": best_spec.id if best_spec else None})
+                           # Quale ricerca ha prodotto il punteggio: e' quella
+                           # che finisce in archivio accanto al punteggio.
+                           "search_id": best_spec.id if best_spec else None,
+                           # E da che punteggio in su merita un avviso, che e'
+                           # un'altra domanda: dipende da tutte le ricerche che
+                           # la prendono, non solo da quella che l'ha valutata
+                           # meglio.
+                           "soglia": self.soglia_avviso(row, specs)})
             if len(da_scrivere) >= LOTTO_PUNTEGGI:
                 db.executemany(SQL_PUNTEGGIO, da_scrivere)
                 da_scrivere.clear()
@@ -767,6 +838,7 @@ class Pipeline:
             "ORDER BY m.score DESC LIMIT ?",
             (self._cv_id, self.finestra_arretrato(), self.MAI_ANNUNCIATE),
         )
+        specs = self.search_specs()
         arretrato = []
         for riga in righe:
             if riga["id"] in escludi:
@@ -776,8 +848,35 @@ class Pipeline:
             except ValueError:
                 breakdown = {}
             arretrato.append({"job": db.row_to_dict(riga), "score": riga["score"],
-                              "breakdown": breakdown, "search_id": riga["search_id"]})
+                              "breakdown": breakdown, "search_id": riga["search_id"],
+                              "soglia": self.soglia_avviso(riga, specs)})
         return arretrato
+
+    def conta_in_attesa(self) -> int:
+        """Quanti avvisi partirebbero adesso, con le soglie in vigore.
+
+        E' lo stesso insieme che guarda `mai_annunciate` e con le stesse soglie,
+        cosi' il numero mostrato accanto alla soglia e' quello che poi succede.
+        Guarda al massimo `MAI_ANNUNCIATE` righe, come il giro: e' il conto di
+        cosa parte al prossimo controllo, non dell'intero archivio.
+        """
+        if self.active_cv() is None:
+            return 0
+        generale = db.get_setting_int("min_match_notify", 40)
+        specs = self.search_specs()
+        sql_comune = (
+            "FROM match m JOIN job j ON j.id = m.job_id "
+            "WHERE m.cv_id = ? AND j.is_archived = 0 AND j.first_seen_at >= ? "
+            "  AND NOT EXISTS (SELECT 1 FROM notification n WHERE n.job_id = j.id)")
+        # Nessuna ricerca ha una soglia propria: il conto lo fa il database.
+        if not any(s.min_match is not None for s in specs):
+            riga = db.query_one(f"SELECT COUNT(*) AS n {sql_comune} AND m.score >= ?",
+                                (self._cv_id, self.finestra_arretrato(), generale))
+            return riga["n"] if riga else 0
+        righe = db.query(
+            f"SELECT j.*, m.score {sql_comune} ORDER BY m.score DESC LIMIT ?",
+            (self._cv_id, self.finestra_arretrato(), self.MAI_ANNUNCIATE))
+        return sum(1 for r in righe if r["score"] >= self.soglia_avviso(r, specs))
 
     # -- livello semantico opzionale ---------------------------------------
 

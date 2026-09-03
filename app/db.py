@@ -310,6 +310,19 @@ def _scrivi(azione: Callable[[sqlite3.Connection], Any]) -> Any:
                         attesa, tentativo, TENTATIVI_SCRITTURA, exc)
             time.sleep(attesa)
             attesa *= 2
+        except Exception:
+            # Qualunque altro errore: un vincolo violato (due dizionari con lo
+            # stesso nome), un tipo sbagliato, un bug qui dentro. Non si
+            # riprova - riproverebbe a sbagliare - ma la transazione va chiusa
+            # comunque: lasciarla aperta lascia il lucchetto di scrittura in
+            # mano a questa connessione, e da quel momento ogni altra scrittura
+            # aspetta il timeout e fallisce. Un nome duplicato bloccava il
+            # database fino al riavvio.
+            try:
+                conn.rollback()
+            except sqlite3.Error:
+                pass
+            raise
 
 
 def execute(sql: str, params: Iterable[Any] = ()) -> sqlite3.Cursor:

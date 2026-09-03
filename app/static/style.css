@@ -1308,3 +1308,46 @@ input[type=range]::-moz-range-thumb { width: 17px; height: 17px; border: 0; bord
 .varianti .hint { line-height: 1.4; }
 .varianti .chips { align-items: center; }
 .varianti .btn.small { gap: 5px; }
+
+/* Il filtro "solo non gestite": un interruttore che si vede acceso, non un
+   pulsante che si preme e non si sa se ha fatto qualcosa. La spunta resta
+   trasparente da spento, cosi' il pulsante non cambia larghezza accendendosi. */
+.btn.filtro-stato { gap: 6px; }
+.btn.filtro-stato svg { opacity: 0; transition: opacity .14s ease; }
+.btn.filtro-stato.on { background: var(--ac5); border-color: var(--ac); color: var(--ac-ink); }
+.btn.filtro-stato.on svg { opacity: 1; }
+
+/* --------------------------------------------------- la sezione «Log» ---- */
+.barra-log { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.barra-log-azioni { display: flex; gap: 6px; margin-left: auto; }
+
+/* La spia che dice se sta seguendo. Il puntino pulsa solo da acceso: un
+   puntino fermo su "in pausa" sembrerebbe un difetto. */
+.log-spia { display: inline-flex; align-items: center; gap: 7px; font-size: 12px;
+            font-weight: 600; color: var(--ok-ink); }
+.log-spia::before { content: ""; width: 7px; height: 7px; border-radius: 50%;
+                    background: var(--ok); animation: battito 1.8s ease-in-out infinite; }
+.log-spia.fermo { color: var(--tx3); }
+.log-spia.fermo::before { background: var(--tx3); animation: none; }
+@keyframes battito { 0%, 100% { opacity: 1; } 50% { opacity: .25; } }
+
+.terminale { position: relative; }
+.terminale-out {
+  height: min(62vh, 620px); overflow: auto; padding: 12px 14px;
+  border: 1px solid var(--bd); border-radius: 12px; background: var(--fl2);
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 12px; line-height: 1.55; color: var(--tx2);
+  /* Le righe lunghe vanno a capo invece di far scorrere tutta la pagina in
+     orizzontale, ma il rientro dice che sono la continuazione della stessa. */
+  white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.riga-log { padding-left: 18px; text-indent: -18px; }
+.riga-log.liv-warning { color: var(--wn-ink); }
+.riga-log.liv-error, .riga-log.liv-critical { color: var(--bad-ink); font-weight: 500; }
+.riga-log.liv-debug { color: var(--tx3); }
+.log-vuoto { color: var(--tx3); font-family: inherit; }
+
+/* Compare solo se si e' scorso indietro: e' l'unico modo per rimettersi a
+   seguire senza cercare la fine con la rotella. */
+.terminale-giu { position: absolute; right: 16px; bottom: 14px; box-shadow: 0 2px 10px var(--sh2); }
+.terminale-giu[hidden] { display: none; }

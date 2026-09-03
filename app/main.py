@@ -28,7 +28,7 @@ from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import accesso, db, notify, paesi, scheduler
+from . import accesso, db, notify, paesi, registro, scheduler
 from .config import CV_DIR, PREFISSO_SEGRETO, SECRETS, SEGRETI, STATIC_DIR
 from .config import dimentica_segreti
 from .matching import CVParseError, build_profile, extract_text, feedback, llm
@@ -38,11 +38,14 @@ from .matching.skills import resolve_skill, skill_catalogue
 from .pipeline import pipeline
 from .providers import BY_KIND, catalogue, detect_from_url
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s  %(levelname)-7s %(name)s  %(message)s",
-    datefmt="%H:%M:%S",
-)
+FORMATO_LOG = "%(asctime)s  %(levelname)-7s %(name)s  %(message)s"
+ORA_LOG = "%H:%M:%S"
+
+logging.basicConfig(level=logging.INFO, format=FORMATO_LOG, datefmt=ORA_LOG)
+# Le stesse righe che finiscono su stdout restano anche in memoria, per la
+# sezione «Log» dell'interfaccia: da dentro il contenitore quello che e' gia'
+# uscito non si puo' rileggere.
+registro.collega(FORMATO_LOG, ORA_LOG)
 log = logging.getLogger("jobseeker")
 
 MAX_CV_BYTES = 10 * 1024 * 1024
@@ -224,18 +227,11 @@ def get_status() -> dict[str, Any]:
         "WHERE m.cv_id = ? AND j.is_archived = 0", (cv_id,)
     )
     # Quante offerte sono in attesa di un avviso, con le soglie in vigore:
-    # e' lo stesso insieme che guarda `mai_annunciate`, quindi e' il numero di
-    # avvisi che partiranno. Mostrarlo accanto alla soglia evita la sorpresa di
-    # abbassarla e ritrovarsi centinaia di avvisi: il conto si vede prima.
-    # `COALESCE` sulla soglia della ricerca perche' quella, quando c'e', vince.
-    in_attesa = db.query_one(
-        "SELECT COUNT(*) AS n FROM match m JOIN job j ON j.id = m.job_id "
-        "LEFT JOIN search s ON s.id = m.search_id "
-        "WHERE m.cv_id = ? AND j.is_archived = 0 AND j.first_seen_at >= ? "
-        "  AND m.score >= COALESCE(s.min_match, ?) "
-        "  AND NOT EXISTS (SELECT 1 FROM notification n WHERE n.job_id = j.id)",
-        (cv_id, pipeline.finestra_arretrato(), threshold),
-    )
+    # e' lo stesso insieme che guarda `mai_annunciate` e con le stesse soglie,
+    # quindi e' il numero di avvisi che partiranno. Mostrarlo accanto alla
+    # soglia evita la sorpresa di abbassarla e ritrovarsi centinaia di avvisi:
+    # il conto si vede prima.
+    in_attesa = pipeline.conta_in_attesa()
     # Le ricerche con una soglia propria: quella batte questa, e senza dirlo
     # sembra che la soglia generale non funzioni.
     proprie = db.query(
@@ -256,7 +252,7 @@ def get_status() -> dict[str, Any]:
         "fresh_24h": fresche["n"] or 0,
         "fresh_above_threshold": fresche["sopra"] or 0,
         "avg_score": round(media["media"]) if media["media"] is not None else None,
-        "pending_notifications": in_attesa["n"],
+        "pending_notifications": in_attesa,
         "deletable_jobs": cancellabili["n"],
         "search_thresholds": [dict(r) for r in proprie],
         "unseen_notifications": unseen["n"],
@@ -1398,6 +1394,21 @@ def llm_models(provider: str = "") -> dict[str, Any]:
         "default": llm.provider_info(scelto)["model"],
         "current": db.get_setting("llm_model", "") or llm.provider_info(scelto)["model"],
     }
+
+
+@app.get("/api/logs")
+def read_logs(
+    after: int = Query(0, ge=0),
+    limit: int = Query(400, ge=1, le=1000),
+    level: str = Query("", pattern="^(|debug|info|warning|error)$"),
+) -> dict[str, Any]:
+    """Le righe di log successive a `after`, per la sezione «Log».
+
+    Con `after` a zero tornano le ultime, che e' quello che serve a chi apre la
+    pagina. Poi si continua passando il numero dell'ultima riga ricevuta: cosi'
+    l'interfaccia chiede solo le novita' invece di riscaricare tutto.
+    """
+    return registro.registro.dopo(numero=after, limite=limit, livello=level)
 
 
 @app.get("/api/diagnostics")
