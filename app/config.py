@@ -140,6 +140,18 @@ SEGRETI: dict[str, tuple[str, str]] = {
     "telegram_chat_id":     ("TELEGRAM_CHAT_ID",     ""),
     "anthropic_api_key":    ("ANTHROPIC_API_KEY",    ""),
     "gemini_api_key":       ("GEMINI_API_KEY",       ""),
+    # Fornitore con API compatibile OpenAI. L'indirizzo sta qui e non fra le
+    # impostazioni generali per due motivi: cosi' si puo' scrivere nel .env
+    # come tutto il resto della configurazione di un servizio, e cosi'
+    # l'interfaccia lo mostra accanto alla chiave a cui appartiene. Non e' un
+    # segreto, come non lo sono `smtp_host` o `adzuna_app_id`.
+    "openai_api_key":       ("OPENAI_API_KEY",       ""),
+    # Nessun valore predefinito di proposito: con "localhost:11434" scritto qui
+    # il fornitore si sarebbe dichiarato disponibile anche a chi non ha nessun
+    # modello in ascolto, e la pagina delle impostazioni avrebbe mostrato una
+    # spunta verde per un servizio che non esiste. Gli indirizzi da incollare
+    # stanno nell'aiuto del campo.
+    "openai_base_url":      ("OPENAI_BASE_URL",      ""),
 }
 
 # Nel database le credenziali stanno fra le impostazioni, con questo prefisso.

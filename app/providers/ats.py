@@ -15,6 +15,12 @@ from urllib.parse import urlparse
 
 import httpx
 
+from .. import paesi
+# Le varianti linguistiche dei nomi di luogo ("Milano" / "Milan", "Lombardia" /
+# "Lombardy") stanno nel motore di confronto. Si importa quella tabella invece
+# di riscriverne una qui: due elenchi di alias divergono alla prima aggiunta, e
+# a divergere sarebbe il filtro geografico.
+from ..matching.text import normalize, place_variants
 from .base import (
     BaseProvider,
     JobPosting,
@@ -22,6 +28,7 @@ from .base import (
     SearchSpec,
     html_to_text,
     looks_remote,
+    luogo_cercato,
     parse_date,
     unique_terms,
 )
@@ -218,18 +225,30 @@ class SmartRecruitersProvider(BaseProvider):
         # Una richiesta per parola chiave distinta: piu' ricerche salvate
         # condividono spesso le stesse chiavi, e ripeterle sarebbe traffico
         # sprecato senza un solo risultato in piu'.
-        paese = next((s.country for s in searches if s.country), "") if searches else ""
-        queries: list[dict[str, Any]] = []
+        # I paesi si leggono dalla localita' delle ricerche: il campo "Paese"
+        # non esiste piu' nell'interfaccia, e finche' lo si cercava li' il
+        # parametro non veniva mai inviato e si scaricava la bacheca intera.
+        # Ordinati, perche' l'insieme non ha un ordine e le richieste devono
+        # essere le stesse a ogni giro.
+        isos, _ = luogo_cercato(searches)
+        queries: list[tuple[str, dict[str, Any]]] = []
         for term in unique_terms(searches):
-            params: dict[str, Any] = {"limit": self.PAGE, "offset": 0}
-            if term:
-                params["q"] = term
-            if paese:
-                params["country"] = paese
-            queries.append(params)
+            # Una richiesta per paese: l'API ne accetta uno solo per volta, e
+            # prendere il primo voleva dire non cercare affatto per le altre
+            # ricerche. I paesi sono quasi sempre uno.
+            for iso in sorted(isos) or [""]:
+                params: dict[str, Any] = {"limit": self.PAGE, "offset": 0}
+                if term:
+                    params["q"] = term
+                if iso:
+                    params["country"] = iso
+                queries.append((term, params))
 
         seen: dict[str, dict[str, Any]] = {}
-        for params in queries:
+        # Con quale parola chiave ogni offerta e' stata trovata: come per
+        # Workday, serve al filtro di pertinenza (vedi la nota piu' sotto).
+        trovata_con: dict[str, str] = {}
+        for term, params in queries:
             offset, total = 0, None
             while total is None or offset < min(total, self.MAX_RESULTS_PER_TERM):
                 page_params = dict(params, offset=offset)
@@ -239,7 +258,10 @@ class SmartRecruitersProvider(BaseProvider):
                 if not items:
                     break
                 for item in items:
-                    seen.setdefault(str(item.get("id")), item)
+                    chiave = str(item.get("id"))
+                    if chiave not in seen:
+                        seen[chiave] = item
+                        trovata_con[chiave] = term
                 offset += self.PAGE
 
         # Come per Workday, qui ci si ferma all'elenco. La descrizione costa una
@@ -251,6 +273,14 @@ class SmartRecruitersProvider(BaseProvider):
             # sull'annuncio giusto anche senza chiamare il dettaglio.
             posting_url = (item.get("postingUrl")
                            or f"https://jobs.smartrecruiters.com/{company}/{posting_id}")
+            # La parola con cui il portale ha trovato l'offerta. SmartRecruiters
+            # la cerca nel testo completo dell'annuncio, che qui non c'e'
+            # ancora: senza questa annotazione il filtro di pertinenza la
+            # ricercava nel solo titolo e scartava offerte buone. Vale finche'
+            # la descrizione non arriva (vedi `_parola_gia_cercata`).
+            raw = dict(item)
+            if trovata_con.get(posting_id):
+                raw["query"] = trovata_con[posting_id]
             postings.append(
                 JobPosting(
                     external_id=posting_id,
@@ -267,7 +297,7 @@ class SmartRecruitersProvider(BaseProvider):
                     employment_type=(item.get("typeOfEmployment") or {}).get("label", ""),
                     department=(item.get("function") or {}).get("label", ""),
                     posted_at=parse_date(item.get("releasedDate")),
-                    raw=item,
+                    raw=raw,
                 )
             )
         return postings
@@ -376,16 +406,6 @@ class WorkableProvider(BaseProvider):
 # Workday
 # --------------------------------------------------------------------------
 
-# Codici ISO a due lettere tradotti nel nome inglese usato da Workday nella
-# faccetta dei paesi. Serve solo per i paesi plausibili in una ricerca europea.
-_ISO_TO_COUNTRY = {
-    "it": "Italy", "fr": "France", "de": "Germany", "es": "Spain", "pt": "Portugal",
-    "ch": "Switzerland", "at": "Austria", "be": "Belgium", "nl": "Netherlands",
-    "ie": "Ireland", "gb": "United Kingdom", "uk": "United Kingdom", "us": "United States",
-    "dk": "Denmark", "se": "Sweden", "no": "Norway", "fi": "Finland", "pl": "Poland",
-    "cz": "Czech Republic", "hu": "Hungary", "ro": "Romania", "gr": "Greece",
-}
-
 _LOCALE_RE = re.compile(r"^[a-z]{2}-[A-Za-z]{2}$")
 
 
@@ -394,8 +414,9 @@ class WorkdayProvider(BaseProvider):
     label = "Workday"
     description = (
         "Portale carriere Workday, la piattaforma delle grandi aziende farmaceutiche "
-        "(Novartis, Sanofi, AstraZeneca, GSK). Filtra per paese e parola chiave lato "
-        "server e restituisce la descrizione integrale dell'annuncio."
+        "(Novartis, Sanofi, AstraZeneca, GSK). Filtra lato server per parola chiave e "
+        "per la localita' della ricerca - paese, regione o citta' - e restituisce la "
+        "descrizione integrale dell'annuncio."
     )
     supports_query = True
     default_interval = 900
@@ -542,54 +563,122 @@ class WorkdayProvider(BaseProvider):
                 if isinstance(value, dict) and "values" in value:
                     yield value
 
-    @staticmethod
-    def _in_country(descriptor: str, country: str) -> bool:
-        """Se una sede appartiene al paese cercato.
+    _SEDI_PARAMS = ("locations", "location")
 
-        Le sedi sono scritte in inglese e in forme varie: "Milan, Italy",
-        "Rome, Roma, Italy", "Remote, Italy", "Milan, Italy (ITALY01, 40)".
+    @staticmethod
+    def _in_country(descriptor: str, iso: str) -> bool:
+        """Se una sede appartiene al paese indicato, dato il suo codice ISO.
+
+        I tenant scrivono il paese dove capita e in forme diverse: in coda
+        ("Monza, Italy" - Thermo Fisher), in testa per nome ("Italy - Catania" -
+        AstraZeneca) o in testa in codice ("ITA - Lazio - Roma" - MSD). Cercare
+        una sottostringa dentro la sede intera vuol dire indovinare l'ordine e
+        la forma: si guarda invece ogni pezzo, e ne basta uno che sia il paese.
         """
-        d = str(descriptor).strip().lower()
-        c = country.strip().lower()
-        return d == c or d.endswith(c) or f", {c}" in d
+        return any(paesi.pezzo_e_paese(p, iso) for p in paesi.segmenti(descriptor))
+
+    @staticmethod
+    def _luogo_nel_pezzo(luogo: str, pezzo: str) -> bool:
+        """Se un pezzo di sede nomina il luogo cercato, in una delle sue lingue.
+
+        Il nome deve comparire per parola intera: la sede puo' portarsi dietro
+        l'edificio ("Bengaluru Luxor North Tower", "Milan Office") e allora la
+        citta' e' solo una parte del pezzo, ma dev'essere una parola sua.
+
+        Il confronto va in una direzione sola, e non e' un dettaglio. Cercare
+        anche il pezzo dentro il nome - come fa `place_matches`, che nasce per
+        confrontare sedi intere - qui produce disastri silenziosi: le sigle
+        degli stati americani sono lunghe due lettere, "MA" sta dentro "Roma",
+        "AZ" dentro "Lazio" e "IL" dentro "Milano", e una ricerca su Roma
+        tornava con le offerte di Boston.
+        """
+        piatto = normalize(pezzo)
+        if not piatto:
+            return False
+        return any(
+            variante and re.search(
+                rf"(?<![a-z0-9]){re.escape(variante)}(?![a-z0-9])", piatto)
+            for variante in place_variants(luogo)
+        )
 
     @classmethod
-    def _location_facets(cls, payload: dict[str, Any], wanted: str) -> dict[str, list[str]] | None:
-        """Costruisce il filtro per limitare la ricerca a un paese.
+    def _sede_cercata(cls, descriptor: str, isos: set[str], luoghi: list[str]) -> bool:
+        """Se una sede del portale e' fra quelle che le ricerche chiedono.
 
-        Restituisce `{}` se il paese non ha posizioni aperte, un dizionario di
-        faccette se il filtro e' possibile, e `None` se la struttura di quel
-        tenant non permette di filtrare lato server.
+        Il paese, quando lo si conosce, e' un vincolo: "Milano" non deve
+        pescare la Milan del Tennessee. Il luogo si confronta pezzo per pezzo,
+        con le varianti di lingua, perche' la ricerca dice "Lombardia" e il
+        portale scrive "Lombardy".
+        """
+        if isos and not any(cls._in_country(descriptor, i) for i in isos):
+            return False
+        pezzi = paesi.segmenti(descriptor)
+        return any(cls._luogo_nel_pezzo(luogo, pezzo)
+                   for luogo in luoghi for pezzo in pezzi)
+
+    @classmethod
+    def _gruppo(cls, payload: dict[str, Any], nomi: tuple[str, ...]):
+        """La faccetta che si chiama in uno dei modi dati, con i suoi valori.
+
+        Il nome si confronta senza trattini bassi: la stessa faccetta e'
+        "locationCountry" per Novartis e "Location_Country" per IQVIA.
+        """
+        for group in cls._facet_groups(payload):
+            parametro = str(group.get("facetParameter") or "")
+            if parametro.replace("_", "").lower() in nomi:
+                return parametro, [v for v in group.get("values", []) if v.get("id")]
+        return "", []
+
+    @classmethod
+    def _location_facets(cls, payload: dict[str, Any], isos: set[str],
+                         luoghi: list[str]) -> dict[str, list[str]] | None:
+        """Il filtro da applicare lato server per la localita' delle ricerche.
+
+        Restituisce `{}` se quello che si cerca non esiste in questo portale,
+        un dizionario di faccette se il filtro e' possibile, e `None` se la
+        struttura di questo tenant non permette di filtrare.
 
         Gli identificativi non sono documentati da Workday ma compaiono nella
         risposta stessa: leggerli a ogni giro evita di scriverli a mano e
         regge i cambiamenti.
         """
-        # 1. Faccetta dedicata al paese, in qualunque variante di nome.
-        for group in cls._facet_groups(payload):
-            parametro = str(group.get("facetParameter") or "")
-            if parametro.replace("_", "").lower() not in cls._COUNTRY_PARAMS:
-                continue
-            for value in group.get("values", []):
-                if str(value.get("descriptor", "")).strip().lower() == wanted.strip().lower():
-                    return {parametro: [value["id"]]}
-            # La faccetta paese esiste ma il paese non c'e': nessuna posizione li'.
-            return {}
+        sedi_par, sedi_val = cls._gruppo(payload, cls._SEDI_PARAMS)
+        paese_par, paese_val = cls._gruppo(payload, cls._COUNTRY_PARAMS)
 
-        # 2. Nessuna faccetta paese: molti tenant (Thermo Fisher, AstraZeneca)
-        #    espongono solo le singole sedi. Si prendono tutte quelle del paese.
-        for group in cls._facet_groups(payload):
-            parametro = str(group.get("facetParameter") or "")
-            if parametro.lower() not in ("locations", "location"):
-                continue
-            ids = [
-                v["id"] for v in group.get("values", [])
-                if v.get("id") and cls._in_country(v.get("descriptor", ""), wanted)
-            ]
-            return {parametro: ids[:80]} if ids else {}
+        # 1. La ricerca nomina una citta' o una regione: l'elenco delle sedi e'
+        #    il filtro piu' stretto che il portale sappia applicare.
+        if luoghi and sedi_val:
+            ids = [v["id"] for v in sedi_val
+                   if cls._sede_cercata(v.get("descriptor", ""), isos, luoghi)]
+            if ids:
+                return {sedi_par: ids[:80]}
+            # Nessuna sede con quel nome. Non vuol dire che non ci sia niente
+            # da cercare: le sedi hanno nomi propri - "Italy - Rosia" e' in
+            # Toscana - e chi scrive "Toscana" non li conosce. Si ripiega sul
+            # paese, e la localita' la ricontrolla il filtro di pertinenza.
 
-        # 3. Struttura sconosciuta: non si puo' filtrare lato server.
+        if not isos:
+            # Un luogo che il portale non conosce e nessun paese: non si sa
+            # nemmeno in che parte del mondo guardare. Meglio dichiararlo che
+            # scaricare il mondo intero.
+            return None
+
+        # 2. Faccetta dedicata al paese.
+        if paese_val:
+            ids = [v["id"] for v in paese_val
+                   if any(paesi.pezzo_e_paese(v.get("descriptor", ""), i) for i in isos)]
+            return {paese_par: ids} if ids else {}
+
+        # 3. Nessuna faccetta paese: molti tenant (Thermo Fisher, AstraZeneca,
+        #    MSD) espongono solo le singole sedi. Si prendono quelle del paese.
+        if sedi_val:
+            ids = [v["id"] for v in sedi_val
+                   if any(cls._in_country(v.get("descriptor", ""), i) for i in isos)]
+            return {sedi_par: ids[:80]} if ids else {}
+
+        # 4. Struttura sconosciuta: non si puo' filtrare lato server.
         return None
+
 
     async def fetch(self, searches: list[SearchSpec]) -> list[JobPosting]:
         config = self.config
@@ -600,28 +689,33 @@ class WorkdayProvider(BaseProvider):
         # Una prima chiamata a vuoto serve a leggere le faccette disponibili.
         probe = await self._post({"appliedFacets": {}, "limit": 1, "offset": 0, "searchText": ""})
 
-        wanted_country = _ISO_TO_COUNTRY.get((specs[0].country or "").lower(), "")
+        isos, luoghi = luogo_cercato(specs)
         facets: dict[str, list[str]] = {}
         pagine = self.MAX_PAGES
-        if wanted_country:
-            trovato = self._location_facets(probe, wanted_country)
+        if isos or luoghi:
+            trovato = self._location_facets(probe, isos, luoghi)
             if trovato is None:
                 # Struttura non riconosciuta: si scarica comunque, ma poco, e
                 # il filtro di pertinenza fara' il resto a valle.
-                log.info("%s: filtro per paese non disponibile, scarico ridotto",
+                log.info("%s: filtro per localita' non disponibile, scarico ridotto",
                          config["tenant"])
                 pagine = 2
             elif not trovato:
-                # Il paese non ha posizioni aperte. Proseguire senza filtro
-                # scaricherebbe il mondo intero per poi buttarlo: e' quello che
-                # accadeva con AstraZeneca, 306 offerte scaricate e zero utili.
+                # La localita' cercata non ha posizioni aperte. Proseguire
+                # senza filtro scaricherebbe il mondo intero per poi buttarlo:
+                # e' quello che accadeva con AstraZeneca, 306 offerte scaricate
+                # e zero utili.
                 log.info("%s: nessuna posizione in %s, niente da scaricare",
-                         config["tenant"], wanted_country)
+                         config["tenant"],
+                         ", ".join(sorted(isos)) or ", ".join(luoghi))
                 return []
             else:
                 facets = trovato
 
         collected: dict[str, dict[str, Any]] = {}
+        # Con quale parola chiave ogni offerta e' stata trovata. Serve al filtro
+        # di pertinenza: vedi la nota dove viene scritta in `raw`.
+        trovata_con: dict[str, str] = {}
         for term in unique_terms(specs):
             offset = 0
             for _ in range(pagine):
@@ -637,8 +731,9 @@ class WorkdayProvider(BaseProvider):
                 prima = len(collected)
                 for item in postings:
                     path = item.get("externalPath") or ""
-                    if path:
-                        collected.setdefault(path, item)
+                    if path and path not in collected:
+                        collected[path] = item
+                        trovata_con[path] = term
                 # Termini diversi restituiscono in gran parte le stesse offerte:
                 # se una pagina non porta nulla di nuovo, continuare a paginare
                 # e' solo traffico sprecato.
@@ -652,26 +747,54 @@ class WorkdayProvider(BaseProvider):
                     f"/{config['site']}")
         company = config.get("company") or config["tenant"].replace("-", " ").title()
 
+        # Il paese da attribuire a un'offerta che non lo dichiara: quello
+        # cercato, ma solo se le ricerche ne chiedevano uno solo. Con due paesi
+        # in ballo non si puo' sapere quale sia, e attribuirne uno a caso
+        # farebbe scartare l'offerta dal filtro dell'altra ricerca.
+        paese_unico = paesi.INGLESE.get(next(iter(isos)), "").title() if len(isos) == 1 else ""
+
         # Qui ci si ferma all'elenco: la descrizione costa una richiesta per
         # annuncio e viene scaricata da `enrich`, dopo il filtro di pertinenza.
         results: list[JobPosting] = []
         for path, item in collected.items():
             location = item.get("locationsText", "") or ""
+            pezzi = paesi.segmenti(location)
+            # La citta' e' il pezzo piu' preciso, cioe' l'ultimo che non sia il
+            # paese: "ITA - Lazio - Roma" e' Roma, "Monza, Italy" e' Monza.
+            # Prendere il primo pezzo dava "ITA" a tutte le offerte di MSD.
+            citta = next((p for p in reversed(pezzi) if not paesi.codice_o_sigla(p)), "")
+            # Il paese scritto nella sede, se si riconosce, vale piu' di quello
+            # supposto: nei portali che elencano piu' sedi ("5 Locations") non
+            # c'e', e li' l'unica informazione e' il filtro che l'ha trovata.
+            iso_sede = next((c for c in map(paesi.codice_o_sigla, pezzi) if c), "")
+            # La parola con cui il portale ha trovato questa offerta viaggia
+            # dentro `raw`. Workday cerca nel testo integrale dell'annuncio; il
+            # filtro di pertinenza, che gira prima di `enrich`, ha in mano
+            # soltanto titolo, azienda e sede, e cercandovi la stessa parola
+            # buttava via quasi tutto: "laboratorio" trova "QC chemical Lab
+            # Internship", ma nel titolo quella parola non c'e'. Con questa
+            # annotazione il filtro riconosce che la selezione l'ha gia' fatta
+            # il portale, che sul testo aveva piu' informazioni di noi. Vale
+            # solo finche' la descrizione non c'e': appena arriva, a decidere
+            # torna il testo dell'annuncio (vedi `_parola_gia_cercata`).
+            raw = dict(item)
+            if trovata_con.get(path):
+                raw["query"] = trovata_con[path]
             results.append(
                 JobPosting(
                     external_id=path,
                     title=(item.get("title") or "").strip(),
                     company=company,
                     location=location,
-                    city=location.split(",")[0].strip() if location else "",
-                    country=wanted_country,
+                    city=citta,
+                    country=paesi.INGLESE.get(iso_sede, "").title() or paese_unico,
                     remote=looks_remote(location, item.get("title")),
                     url=f"{site_url}{path}",
                     apply_url=f"{site_url}{path}",
                     description="",
                     employment_type=item.get("timeType", "") or "",
                     posted_at=None,
-                    raw=item,
+                    raw=raw,
                 )
             )
         return results

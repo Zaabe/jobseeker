@@ -15,9 +15,11 @@ from .base import (
     JobPosting,
     ProviderError,
     SearchSpec,
+    coppie_ricerca_termine,
     html_to_text,
     looks_remote,
     parse_date,
+    unique_terms,
 )
 
 
@@ -72,64 +74,65 @@ class AdzunaProvider(BaseProvider):
             return []
 
         collected: dict[str, JobPosting] = {}
-        for spec in searches:
+        # Una richiesta per parola chiave: `what` con troppi termini restringe
+        # il risultato fino a svuotarlo. Le coppie arrivano col tetto gia'
+        # applicato: qui la stessa parola in due ricerche non e' un doppione,
+        # perche' `where` e `what_exclude` sono quelli della singola ricerca.
+        for spec, term in coppie_ricerca_termine(searches):
             country = (spec.country or default_country or "it").lower()
-            # Una richiesta per parola chiave: `what` con troppi termini
-            # restringe il risultato fino a svuotarlo.
-            for term in spec.query_terms:
-                base_params = {
-                    "app_id": app_id,
-                    "app_key": app_key,
-                    "results_per_page": self.PER_PAGE,
-                    "content-type": "application/json",
-                    "sort_by": "date",
-                    # Solo annunci recenti: il resto e' gia' in archivio.
-                    "max_days_old": self.config.get("max_days_old", 30),
-                }
-                if term:
-                    base_params["what"] = term
-                if spec.location:
-                    base_params["where"] = spec.location
-                if spec.exclude:
-                    base_params["what_exclude"] = " ".join(spec.exclude)
+            base_params = {
+                "app_id": app_id,
+                "app_key": app_key,
+                "results_per_page": self.PER_PAGE,
+                "content-type": "application/json",
+                "sort_by": "date",
+                # Solo annunci recenti: il resto e' gia' in archivio.
+                "max_days_old": self.config.get("max_days_old", 30),
+            }
+            if term:
+                base_params["what"] = term
+            if spec.location:
+                base_params["where"] = spec.location
+            if spec.exclude:
+                base_params["what_exclude"] = " ".join(spec.exclude)
 
-                for page in range(1, self.MAX_PAGES + 1):
-                    data = await self.get_json(
-                        self.API.format(country=country, page=page), params=base_params
+            for page in range(1, self.MAX_PAGES + 1):
+                data = await self.get_json(
+                    self.API.format(country=country, page=page), params=base_params
+                )
+                results = data.get("results", [])
+                if not results:
+                    break
+                for job in results:
+                    job_id = str(job.get("id"))
+                    if job_id in collected:
+                        continue
+                    location = job.get("location") or {}
+                    area = location.get("area") or []
+                    collected[job_id] = JobPosting(
+                        external_id=job_id,
+                        title=job.get("title", "").strip(),
+                        company=(job.get("company") or {}).get("display_name", ""),
+                        location=location.get("display_name", ""),
+                        city=area[-1] if area else "",
+                        region=area[1] if len(area) > 1 else "",
+                        country=country,
+                        remote=looks_remote(location.get("display_name"), job.get("title")),
+                        url=job.get("redirect_url", ""),
+                        apply_url=job.get("redirect_url", ""),
+                        description=html_to_text(job.get("description")),
+                        employment_type=" ".join(
+                            p for p in (job.get("contract_time"), job.get("contract_type")) if p
+                        ),
+                        department=(job.get("category") or {}).get("label", ""),
+                        salary_min=job.get("salary_min"),
+                        salary_max=job.get("salary_max"),
+                        currency="EUR" if country == "it" else "",
+                        posted_at=parse_date(job.get("created")),
+                        raw=job,
                     )
-                    results = data.get("results", [])
-                    if not results:
-                        break
-                    for job in results:
-                        job_id = str(job.get("id"))
-                        if job_id in collected:
-                            continue
-                        location = job.get("location") or {}
-                        area = location.get("area") or []
-                        collected[job_id] = JobPosting(
-                            external_id=job_id,
-                            title=job.get("title", "").strip(),
-                            company=(job.get("company") or {}).get("display_name", ""),
-                            location=location.get("display_name", ""),
-                            city=area[-1] if area else "",
-                            region=area[1] if len(area) > 1 else "",
-                            country=country,
-                            remote=looks_remote(location.get("display_name"), job.get("title")),
-                            url=job.get("redirect_url", ""),
-                            apply_url=job.get("redirect_url", ""),
-                            description=html_to_text(job.get("description")),
-                            employment_type=" ".join(
-                                p for p in (job.get("contract_time"), job.get("contract_type")) if p
-                            ),
-                            department=(job.get("category") or {}).get("label", ""),
-                            salary_min=job.get("salary_min"),
-                            salary_max=job.get("salary_max"),
-                            currency="EUR" if country == "it" else "",
-                            posted_at=parse_date(job.get("created")),
-                            raw=job,
-                        )
-                    if len(results) < self.PER_PAGE:
-                        break
+                if len(results) < self.PER_PAGE:
+                    break
         return list(collected.values())
 
 
@@ -254,30 +257,35 @@ class RemotiveProvider(BaseProvider):
         specs = searches or [SearchSpec()]
         # Anche qui una richiesta per termine: il parametro `search` di Remotive
         # cerca la frase intera, non i singoli termini.
-        for spec in specs:
-            for term in spec.query_terms:
-                params: dict[str, Any] = {"limit": 100}
-                if term:
-                    params["search"] = term
-                data = await self.get_json(self.API, params=params)
-                for job in data.get("jobs", []):
-                    job_id = str(job.get("id"))
-                    if job_id in collected:
-                        continue
-                    collected[job_id] = JobPosting(
-                        external_id=job_id,
-                        title=job.get("title", "").strip(),
-                        company=job.get("company_name", ""),
-                        location=job.get("candidate_required_location", "") or "",
-                        remote=True,
-                        url=job.get("url", ""),
-                        apply_url=job.get("url", ""),
-                        description=html_to_text(job.get("description")),
-                        employment_type=job.get("job_type", "") or "",
-                        department=job.get("category", "") or "",
-                        posted_at=parse_date(job.get("publication_date")),
-                        raw=job,
-                    )
+        #
+        # Sull'insieme unico di tutte le ricerche, non una passata per ricerca:
+        # la richiesta non dipende da nient'altro che dal termine, quindi due
+        # ricerche che condividono una parola chiave facevano due volte la
+        # stessa identica richiesta. E' anche il punto in cui si applica il
+        # tetto contato in totale.
+        for term in unique_terms(specs):
+            params: dict[str, Any] = {"limit": 100}
+            if term:
+                params["search"] = term
+            data = await self.get_json(self.API, params=params)
+            for job in data.get("jobs", []):
+                job_id = str(job.get("id"))
+                if job_id in collected:
+                    continue
+                collected[job_id] = JobPosting(
+                    external_id=job_id,
+                    title=job.get("title", "").strip(),
+                    company=job.get("company_name", ""),
+                    location=job.get("candidate_required_location", "") or "",
+                    remote=True,
+                    url=job.get("url", ""),
+                    apply_url=job.get("url", ""),
+                    description=html_to_text(job.get("description")),
+                    employment_type=job.get("job_type", "") or "",
+                    department=job.get("category", "") or "",
+                    posted_at=parse_date(job.get("publication_date")),
+                    raw=job,
+                )
         return list(collected.values())
 
 

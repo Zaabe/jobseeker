@@ -64,8 +64,33 @@ NOMI: dict[str, tuple[str, ...]] = {
     "au": ("australia", "australia"), "nz": ("nuova zelanda", "new zealand"),
 }
 
+# Codice a due lettere -> codice a tre lettere. Serve a leggere le sedi dei
+# portali che scrivono il paese in codice invece che per nome: MSD, su Workday,
+# chiama le proprie sedi "ITA - Lazio - Roma", e in quella stringa la parola
+# "Italy" non compare da nessuna parte.
+ISO3: dict[str, str] = {
+    "it": "ita", "fr": "fra", "de": "deu", "es": "esp", "pt": "prt",
+    "ch": "che", "at": "aut", "be": "bel", "nl": "nld", "ie": "irl",
+    "gb": "gbr", "us": "usa", "dk": "dnk", "se": "swe", "no": "nor",
+    "fi": "fin", "pl": "pol", "gr": "grc", "cz": "cze", "hu": "hun",
+    "ro": "rou", "lu": "lux", "mt": "mlt", "cy": "cyp", "hr": "hrv",
+    "si": "svn", "sk": "svk", "bg": "bgr", "ee": "est", "lv": "lva",
+    "lt": "ltu", "is": "isl", "rs": "srb", "ua": "ukr", "tr": "tur",
+    "ru": "rus", "al": "alb", "ba": "bih", "mk": "mkd", "md": "mda",
+    "by": "blr", "ca": "can", "mx": "mex", "br": "bra", "ar": "arg",
+    "cl": "chl", "co": "col", "pe": "per", "uy": "ury", "in": "ind",
+    "cn": "chn", "jp": "jpn", "kr": "kor", "sg": "sgp", "hk": "hkg",
+    "ph": "phl", "id": "idn", "my": "mys", "th": "tha", "vn": "vnm",
+    "pk": "pak", "bd": "bgd", "il": "isr", "ae": "are", "sa": "sau",
+    "qa": "qat", "eg": "egy", "ma": "mar", "tn": "tun", "ng": "nga",
+    "ke": "ken", "za": "zaf", "au": "aus", "nz": "nzl",
+}
+
 # Nome -> codice, costruita una volta sola all'importazione.
 _DA_NOME = {nome: iso for iso, nomi in NOMI.items() for nome in nomi}
+
+# Sigla a tre lettere -> codice a due.
+_DA_ISO3 = {tre: due for due, tre in ISO3.items()}
 
 # Codice -> nome inglese. E' il nome da mandare ai portali: LinkedIn non
 # geocodifica "Italia" e, invece di dirlo, cerca da un'altra parte.
@@ -178,6 +203,56 @@ def senza_paese(sede: str) -> str:
         davanti = _senza_parentesi(pezzi[-1])
         pezzi = pezzi[:-1] + ([davanti] if davanti and not codice(davanti) else [])
     return ", ".join(pezzi)
+
+
+# Virgole e trattini separano i pezzi di una sede. Il trattino vuole lo spazio
+# intorno: senza quel vincolo "Aix-en-Provence" e "Boxmeer-Noord" si
+# spezzerebbero in pezzi che non sono nomi di luogo.
+_PEZZI = re.compile(r"\s*[,;/|]\s*|\s+[-–—]\s+")
+
+
+def segmenti(sede: str) -> list[str]:
+    """I pezzi di cui una sede e' composta, dal piu' generale al piu' preciso.
+
+    "ITA - Lazio - Roma" -> ["ITA", "Lazio", "Roma"]
+    "Milano - Lombardia, Italia" -> ["Milano", "Lombardia", "Italia"]
+
+    Serve a chi deve riconoscere un luogo dentro una sede senza sapere in che
+    ordine quel portale la scrive: il paese sta in testa per certi tenant e in
+    coda per altri, e cercarlo con un confronto sull'intera stringa vuol dire
+    indovinare l'ordine. Gli incisi fra parentesi si buttano: nelle sedi sono
+    codici interni, come in "Milan, Italy (ITALY01, 40)".
+    """
+    ripulito = re.sub(r"\s*\([^)]*\)", " ", sede or "")
+    return [p.strip() for p in _PEZZI.split(ripulito) if p and p.strip()]
+
+
+def codice_o_sigla(pezzo: str) -> str:
+    """Il paese di un pezzo di sede, per nome o per sigla a tre lettere.
+
+    Sta separata da `codice` di proposito. Qui si accetta anche "ITA", che
+    dentro la sede di un portale e' certamente un paese; in una localita'
+    scritta a mano sarebbe un azzardo, perche' "Bra" e' un comune del Piemonte
+    e non il Brasile, e le localita' le scrivono le persone.
+    """
+    piatto = _appiattisci(pezzo)
+    return _DA_NOME.get(piatto, "") or _DA_ISO3.get(piatto, "")
+
+
+def pezzo_e_paese(pezzo: str, iso: str) -> bool:
+    """Se un pezzo di sede nomina quel paese: "Italia", "Italy", "ITA", "it".
+
+    Il pezzo deve corrispondere per intero. E' il vincolo che distingue il
+    filtrare dal sembrare di filtrare: "Italy Office" e' un ufficio che si
+    chiama cosi', e sta in Svizzera.
+    """
+    iso = (iso or "").strip().lower()
+    if not iso:
+        return False
+    piatto = _appiattisci(pezzo)
+    if not piatto:
+        return False
+    return piatto == iso or piatto == ISO3.get(iso, "") or piatto in NOMI.get(iso, ())
 
 
 def codice_dalla_sede(sede: str) -> str:

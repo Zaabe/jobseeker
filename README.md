@@ -301,10 +301,42 @@ Si sceglie il fornitore dalla pagina **Impostazioni**:
 |---|---|---|
 | **Google Gemini** | `gemini-3.7-flash` | Gratuita su [aistudio.google.com/apikey](https://aistudio.google.com/apikey) con un normale account Google, **senza carta di credito**. È l'opzione più accessibile |
 | **Anthropic Claude** | `claude-opus-5` | Richiede un'organizzazione Console con fatturazione su platform.claude.com, che è un **servizio separato dall'abbonamento Claude**: se il tuo dominio è gestito da un'organizzazione senza Console, non puoi crearne una da solo |
+| **OpenAI o modello locale** | quello che hai | Nessuna chiave se il modello gira sul tuo computer. Vedi qui sotto |
 
 Metti la chiave nel file `.env` (`GEMINI_API_KEY` oppure `ANTHROPIC_API_KEY`), scegli il
 fornitore in Impostazioni e spunta *Attiva la valutazione semantica*. La libreria di Gemini
 è già installata; per Claude servirebbe `pip install anthropic`.
+
+### Un modello sul proprio computer
+
+La terza voce accetta **qualunque servizio con API compatibile OpenAI**. Serve a far girare
+il modello in casa: non costa niente, non richiede alcuna chiave e **il curriculum non esce
+dalla macchina** — che su un documento del genere è la ragione migliore per preferirla.
+
+| Servizio | Indirizzo da incollare |
+|---|---|
+| [Ollama](https://ollama.com) | `http://localhost:11434/v1` |
+| [LM Studio](https://lmstudio.ai) | `http://localhost:1234/v1` |
+| OpenAI | `https://api.openai.com/v1` — qui la chiave serve |
+
+Indirizzo e chiave si scrivono in **Impostazioni → Credenziali dei servizi**, oppure nel
+file `.env` come `OPENAI_BASE_URL` e `OPENAI_API_KEY`. L'indirizzo deve finire con `/v1`.
+Non c'è nessuna libreria da installare: l'API è una richiesta HTTP e basta.
+
+Il campo **Modello** elenca i modelli davvero presenti sul servizio, letti da lui: il nome di
+un modello locale non si indovina (`llama3.1:8b`, con i due punti e la dimensione) e
+sbagliarlo darebbe un `404` che non spiega niente.
+
+**Con Docker attenzione a un dettaglio**: dentro il contenitore `localhost` è il contenitore
+stesso, non il tuo computer, quindi un Ollama che gira sull'host non si vede. L'indirizzo
+giusto è `http://host.docker.internal:11434/v1`; su Linux serve anche la riga `extra_hosts`
+già presente nel `docker-compose.yml`.
+
+**Cosa aspettarsi.** Un modello da 7-8 miliardi di parametri legge un annuncio in qualche
+decina di secondi e dà giudizi ragionevoli ma più grossolani di Gemini o Claude, e con
+punteggi che tendono a stare in mezzo. Il tempo di attesa è generoso di proposito (tre
+minuti), perché sulla CPU un giudizio lungo può richiederli. I modelli che "ragionano" prima
+di rispondere funzionano: il blocco di ragionamento viene riconosciuto e scartato.
 
 Il campo **Modello** permette di cambiarlo senza toccare il codice: lasciato vuoto usa il
 predefinito del fornitore. Serve perché i nomi dei modelli cambiano spesso.
@@ -355,7 +387,7 @@ JobSeeker/
 │   │   ├── skills.py      dizionario di competenze, ruoli e titoli di studio
 │   │   ├── cv_parser.py   lettura del CV e costruzione del profilo
 │   │   ├── engine.py      calcolo e scomposizione del punteggio
-│   │   └── llm.py         livello semantico opzionale (Gemini o Claude)
+│   │   └── llm.py         livello semantico opzionale (Gemini, Claude o compatibile OpenAI)
 │   ├── notify/            email e avvisi
 │   └── static/            interfaccia web e PWA
 ├── data/                  database e curriculum (non versionati)

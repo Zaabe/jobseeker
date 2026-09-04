@@ -152,11 +152,19 @@ def place_matches(wanted: str, haystack: str) -> bool:
 
     Confronta anche le varianti linguistiche: "Italia" deve riconoscere
     "Scoppito, Italy", altrimenti il filtro elimina le offerte giuste.
+
+    La localita' si spezza come la scrive chi la scrive: le virgole sono
+    alternative, e lo sono anche i trattini con lo spazio intorno. Da quando il
+    campo "Paese" non esiste piu' la localita' porta la gerarchia dentro di se'
+    - "Milano - Lombardia, Italia" - e senza spezzarla si cercava un luogo che
+    si chiama tutto cosi', che non esiste: il filtro scartava anche le offerte
+    di Milano. Lo spezza `paesi.segmenti`, la stessa funzione che legge le sedi
+    dei portali, cosi' le due forme non possono divergere.
     """
     place = normalize(haystack)
     if not place:
         return False
-    for part in re.split(r"[,;/|]+", wanted):
+    for part in paesi.segmenti(wanted):
         for variant in place_variants(part):
             if variant and (variant in place or place in variant):
                 return True

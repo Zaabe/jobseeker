@@ -133,6 +133,28 @@ PROVIDERS: dict[str, dict[str, Any]] = {
         "note": "Richiede un'organizzazione Console con fatturazione, "
                 "separata dall'abbonamento Claude.",
     },
+    "openai": {
+        "label": "OpenAI o modello locale",
+        # Un nome plausibile per Ollama, non una scelta: quali modelli esistano
+        # lo decide il servizio all'altro capo, e la pagina delle impostazioni
+        # elenca quelli che ci sono davvero (vedi `available_models`).
+        "model": "llama3.1:8b",
+        "secret": "openai_api_key",
+        # Nessuna libreria da installare: si parla direttamente con l'API
+        # compatibile OpenAI, che e' una POST con del JSON, usando `httpx` che
+        # c'e' sempre. Per chi vuole far girare un modello sul proprio computer
+        # un "pip install" in piu' sarebbe l'ostacolo di troppo.
+        "package": "",
+        "install": "",
+        "base_url_secret": "openai_base_url",
+        "env_var": "OPENAI_API_KEY",
+        "signup": "ollama.com oppure lmstudio.ai",
+        "note": "Qualunque servizio con API compatibile OpenAI. Sul proprio "
+                "computer con Ollama o LM Studio non serve nessuna chiave, non "
+                "costa niente e il curriculum non esce dalla macchina; con "
+                "l'indirizzo di OpenAI (o di un servizio simile) serve la sua "
+                "chiave. Indirizzo e chiave si impostano fra le credenziali.",
+    },
 }
 
 DEFAULT_PROVIDER = "gemini"
@@ -140,6 +162,42 @@ DEFAULT_PROVIDER = "gemini"
 
 def provider_info(name: str) -> dict[str, Any]:
     return PROVIDERS.get(name, PROVIDERS[DEFAULT_PROVIDER])
+
+
+def base_url(provider: str = "openai") -> str:
+    """L'indirizzo del servizio, per i fornitori che ne hanno uno configurabile.
+
+    Stringa vuota per gli altri: Gemini e Claude parlano con il proprio
+    servizio e non c'e' niente da scegliere.
+    """
+    chiave = (PROVIDERS.get(provider) or {}).get("base_url_secret")
+    if not chiave:
+        return ""
+    return (SECRETS.get(chiave, "") or "").strip().rstrip("/")
+
+
+# Indirizzi che stanno sulla macchina di chi usa l'applicazione, o sulla sua
+# rete: la' un modello gira senza chiave e senza costi.
+_HOST_IN_CASA = ("localhost", "127.0.0.1", "0.0.0.0", "::1", "[::1]",
+                 "host.docker.internal")
+
+
+def _vuole_chiave(url: str) -> bool:
+    """Se quell'indirizzo e' un servizio remoto, e quindi la chiave ci vuole.
+
+    Serve a non chiedere una chiave a chi ha un modello sul proprio computer -
+    Ollama e LM Studio accettano qualunque cosa, o niente - e a dirlo subito a
+    chi invece punta a un servizio a pagamento e la chiave l'ha dimenticata.
+    """
+    from urllib.parse import urlparse
+
+    host = (urlparse(url).hostname or "").lower()
+    if not host or host in _HOST_IN_CASA or host.endswith(".local"):
+        return False
+    # Reti private: un modello sul server di casa o in un altro contenitore.
+    if host.startswith(("192.168.", "10.")) or host.startswith("172."):
+        return False
+    return True
 
 
 def catalogue() -> list[dict[str, Any]]:
@@ -157,6 +215,9 @@ def catalogue() -> list[dict[str, Any]]:
             "note": info["note"],
             "available": available,
             "reason": reason,
+            # Vuoto per i fornitori che non hanno un indirizzo da scegliere:
+            # l'interfaccia lo mostra solo a chi ce l'ha.
+            "base_url": base_url(name),
         })
     return entries
 
@@ -175,10 +236,24 @@ def is_available(name: str) -> tuple[bool, str]:
     info = PROVIDERS.get(name)
     if info is None:
         return False, f"fornitore sconosciuto: {name}"
+    if info.get("base_url_secret"):
+        # Qui il requisito e' l'indirizzo, non la chiave: un modello che gira
+        # in locale non ne vuole nessuna, e pretenderla avrebbe reso
+        # inutilizzabile proprio il caso piu' semplice.
+        indirizzo = base_url(name)
+        if not indirizzo:
+            return False, ("indirizzo del servizio non impostato: scrivilo in "
+                           "Impostazioni, sotto «Credenziali dei servizi». Per Ollama "
+                           "e' http://localhost:11434/v1, per LM Studio "
+                           "http://localhost:1234/v1")
+        if _vuole_chiave(indirizzo) and not SECRETS.get(info["secret"]):
+            return False, (f"{info['env_var']} non impostata: {indirizzo} e' un "
+                           "servizio remoto e la chiede. Un modello sul tuo computer no.")
+        return True, "disponibile"
     if not SECRETS.get(info["secret"]):
         return False, (f"{info['env_var']} non impostata: scrivi la chiave in "
                        "Impostazioni, sotto «Credenziali dei servizi», oppure nel file .env")
-    if not _has_package(info["package"]):
+    if info["package"] and not _has_package(info["package"]):
         return False, f"libreria mancante: installala con  {info['install']}"
     return True, "disponibile"
 
@@ -279,9 +354,172 @@ def _call_claude(prompt: str, model: str, system: str, schema: type[BaseModel],
     return response.parsed_output
 
 
+# Quanto aspettare una risposta da un servizio compatibile OpenAI. E' generoso
+# di proposito: un modello da otto miliardi di parametri sul portatile di chi lo
+# usa puo' metterci un minuto a scrivere un giudizio, e col timeout dei servizi
+# remoti si sarebbe visto solo un errore di rete al posto di una risposta che
+# stava arrivando.
+TIMEOUT_COMPATIBILE = 180.0
+
+
+def _json_dal_testo(testo: str) -> str:
+    """Il primo oggetto JSON dentro una risposta, ignorando cio' che lo circonda.
+
+    I modelli locali non rispondono sempre col solo JSON: lo racchiudono in un
+    blocco markdown, o lo fanno precedere dal proprio ragionamento (i modelli
+    che "pensano" scrivono un blocco <think> prima della risposta). Si cerca
+    quindi la prima graffa e si prosegue contando le graffe, tenendo fuori dal
+    conto quelle dentro le stringhe, perche' una descrizione puo' contenerne.
+    """
+    inizio = testo.find("{")
+    if inizio < 0:
+        return testo
+    profondita = 0
+    in_stringa = False
+    fuga = False
+    for i in range(inizio, len(testo)):
+        c = testo[i]
+        if fuga:
+            fuga = False
+        elif c == "\\":
+            fuga = True
+        elif c == '"':
+            in_stringa = not in_stringa
+        elif not in_stringa:
+            if c == "{":
+                profondita += 1
+            elif c == "}":
+                profondita -= 1
+                if profondita == 0:
+                    return testo[inizio:i + 1]
+    # Risposta troncata a metà: si restituisce quel che c'e' e sara' lo schema
+    # a bocciarla, con un messaggio piu' utile di "graffa mancante".
+    return testo[inizio:]
+
+
+def _call_openai(prompt: str, model: str, system: str, schema: type[BaseModel],
+                 max_tokens: int) -> BaseModel:
+    """Interroga un servizio con API compatibile OpenAI.
+
+    Vale per Ollama e LM Studio sul proprio computer, per OpenAI stessa e per i
+    servizi che ne imitano l'API. Non usa la libreria `openai`: la richiesta e'
+    una POST con del JSON, e `httpx` c'e' gia'.
+
+    La parte delicata e' ottenere una risposta strutturata, perche' i servizi
+    compatibili non sostengono tutti le stesse cose. Si prova dal modo piu'
+    stretto al piu' tollerante - schema vincolante, poi "rispondi in JSON", poi
+    solo la richiesta scritta nel testo - e si passa al successivo quando il
+    server rifiuta. Il modo che ha funzionato non si ricorda: costa una
+    richiesta in piu' una volta sola, e ricordarlo vorrebbe dire sbagliare
+    quando l'utente cambia servizio.
+    """
+    import json
+
+    base = base_url("openai")
+    if not base:
+        raise RuntimeError("indirizzo del servizio non impostato")
+
+    intestazioni = {"Content-Type": "application/json"}
+    chiave = SECRETS.get("openai_api_key", "")
+    if chiave:
+        intestazioni["Authorization"] = f"Bearer {chiave}"
+
+    schema_json = schema.model_json_schema()
+    promemoria = (
+        "\n\nRispondi soltanto con un oggetto JSON conforme a questo schema, "
+        "senza testo prima o dopo e senza blocchi markdown:\n"
+        + json.dumps(schema_json, ensure_ascii=False)
+    )
+    forme = [
+        {"type": "json_schema", "json_schema": {"name": "risposta", "schema": schema_json}},
+        {"type": "json_object"},
+        None,
+    ]
+
+    ultimo_errore = ""
+    tetto = "max_tokens"
+    for forma in forme:
+        # Lo schema si scrive anche nel testo quando non lo vincola il server:
+        # e' l'unica indicazione che il modello ha su cosa scrivere.
+        vincolato = bool(forma) and forma["type"] == "json_schema"
+        corpo: dict[str, Any] = {
+            "model": model,
+            "messages": [
+                {"role": "system", "content": system if vincolato else system + promemoria},
+                {"role": "user", "content": prompt},
+            ],
+            # Un giudizio deve essere ripetibile: la stessa offerta e lo stesso
+            # curriculum non possono dare due punteggi diversi.
+            "temperature": 0,
+            tetto: max_tokens,
+        }
+        if forma:
+            corpo["response_format"] = forma
+
+        risposta = _posta_compatibile(base, intestazioni, corpo)
+        if risposta.status_code == 400:
+            dettaglio = risposta.text[:400]
+            # I modelli recenti di OpenAI rifiutano `max_tokens` e vogliono
+            # `max_completion_tokens`. E' un rifiuto che si riconosce dal
+            # messaggio, e si corregge una volta per tutte.
+            if tetto == "max_tokens" and "max_completion_tokens" in dettaglio:
+                tetto = "max_completion_tokens"
+                corpo.pop("max_tokens", None)
+                corpo[tetto] = max_tokens
+                risposta = _posta_compatibile(base, intestazioni, corpo)
+            if risposta.status_code == 400:
+                # Il server non conosce questa forma di risposta strutturata:
+                # si scende di un gradino.
+                ultimo_errore = f"HTTP 400: {dettaglio}"
+                continue
+        if risposta.status_code == 404:
+            raise RuntimeError(
+                f"{base} risponde 404: l'indirizzo deve finire con /v1 e il "
+                f"modello «{model}» deve esistere sul servizio")
+        if risposta.status_code in (401, 403):
+            raise RuntimeError(
+                f"HTTP {risposta.status_code}: il servizio ha rifiutato la chiave")
+        if risposta.status_code >= 400:
+            raise RuntimeError(f"HTTP {risposta.status_code}: {risposta.text[:220]}")
+
+        try:
+            dati = risposta.json()
+            testo = dati["choices"][0]["message"]["content"] or ""
+        except (ValueError, KeyError, IndexError, TypeError) as exc:
+            ultimo_errore = f"risposta illeggibile ({type(exc).__name__})"
+            continue
+        try:
+            return schema.model_validate_json(_json_dal_testo(testo))
+        except Exception as exc:
+            # Con lo schema vincolante una risposta non conforme non e' colpa
+            # del modello ma del server che non lo vincola davvero: vale la
+            # pena riprovare col modo successivo.
+            ultimo_errore = f"{type(exc).__name__}: {str(exc)[:160]}"
+            continue
+
+    raise RuntimeError(ultimo_errore or "nessuna risposta utilizzabile dal servizio")
+
+
+def _posta_compatibile(base: str, intestazioni: dict[str, str],
+                       corpo: dict[str, Any]) -> Any:
+    """Una POST a /chat/completions, con l'errore di rete tradotto."""
+    import httpx
+
+    try:
+        with httpx.Client(timeout=TIMEOUT_COMPATIBILE) as http:
+            return http.post(f"{base}/chat/completions", json=corpo, headers=intestazioni)
+    except httpx.HTTPError as exc:
+        # Corto di proposito: `prova` mostra i primi 220 caratteri dell'errore,
+        # e un suggerimento che cade fuori da quel taglio non serve a nessuno.
+        raise RuntimeError(
+            f"non raggiungibile su {base}: {exc}. In un contenitore «localhost» e' "
+            "il contenitore stesso: prova host.docker.internal") from exc
+
+
 _BACKENDS: dict[str, Callable[..., BaseModel]] = {
     "gemini": _call_gemini,
     "claude": _call_claude,
+    "openai": _call_openai,
 }
 
 
@@ -326,28 +564,67 @@ def available_models(provider: str) -> list[str]:
     scritto a mano, che invecchia in fretta e non tiene conto di cosa la
     singola chiave abbia effettivamente abilitato.
     """
-    if provider != "gemini" or not is_available("gemini")[0]:
-        return []
-
     import time
 
-    in_memoria = _CACHE_MODELLI.get(provider)
+    lettore = _ELENCHI.get(provider)
+    if lettore is None or not is_available(provider)[0]:
+        return []
+
+    # L'indirizzo entra nella chiave: chi passa da Ollama a LM Studio cambia
+    # l'elenco dei modelli, e senza questo si vedrebbero ancora i precedenti.
+    chiave_cache = f"{provider}|{base_url(provider)}"
+    in_memoria = _CACHE_MODELLI.get(chiave_cache)
     if in_memoria and in_memoria[1] > time.monotonic():
         return in_memoria[0]
 
     try:
-        from google import genai
-
-        client = genai.Client(api_key=SECRETS["gemini_api_key"])
-        nomi = [str(getattr(m, "name", "")).removeprefix("models/") for m in client.models.list()]
+        nomi = lettore()
     except Exception as exc:
-        log.warning("elenco modelli non recuperabile: %s", str(exc)[:140])
+        log.warning("elenco modelli non recuperabile (%s): %s", provider, str(exc)[:140])
         return []
     # Solo modelli testuali generalisti: immagini, voce e simili qui non servono.
-    escludi = ("image", "tts", "embedding", "aqa", "omni", "banana", "veo", "imagen", "gemma")
+    escludi = ("image", "tts", "embed", "aqa", "omni", "banana", "veo", "imagen",
+               "gemma", "whisper", "dall-e", "moderation", "audio", "realtime",
+               "rerank", "clip", "guard")
     modelli = sorted(n for n in nomi if n and not any(e in n for e in escludi))
-    _CACHE_MODELLI[provider] = (modelli, time.monotonic() + _DURATA_CACHE)
+    _CACHE_MODELLI[chiave_cache] = (modelli, time.monotonic() + _DURATA_CACHE)
     return modelli
+
+
+def _modelli_gemini() -> list[str]:
+    from google import genai
+
+    client = genai.Client(api_key=SECRETS["gemini_api_key"])
+    return [str(getattr(m, "name", "")).removeprefix("models/") for m in client.models.list()]
+
+
+def _modelli_openai() -> list[str]:
+    """I modelli che il servizio compatibile dichiara di avere.
+
+    Con Ollama e LM Studio sono quelli davvero scaricati sul computer, ed e' la
+    ragione per cui vale la pena chiederli: il nome di un modello locale non lo
+    si indovina («llama3.1:8b», con i due punti e la dimensione) e sbagliarlo
+    da' un 404 che non spiega niente.
+    """
+    import httpx
+
+    intestazioni = {}
+    chiave = SECRETS.get("openai_api_key", "")
+    if chiave:
+        intestazioni["Authorization"] = f"Bearer {chiave}"
+    with httpx.Client(timeout=15.0) as http:
+        risposta = http.get(f"{base_url('openai')}/models", headers=intestazioni)
+    risposta.raise_for_status()
+    return [str(v.get("id", "")) for v in (risposta.json().get("data") or [])]
+
+
+# Chi sa elencare i propri modelli. Claude non c'e': la sua libreria lo
+# permetterebbe, ma i nomi sono pochi, stabili e documentati, e una richiesta
+# in piu' a ogni apertura delle impostazioni non ripaga.
+_ELENCHI: dict[str, Callable[[], list[str]]] = {
+    "gemini": _modelli_gemini,
+    "openai": _modelli_openai,
+}
 
 
 def evaluate(

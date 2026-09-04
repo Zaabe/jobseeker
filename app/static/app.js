@@ -169,6 +169,7 @@ const T = {
     logout: "Esci", logoutHelp: "Chiude la sessione e riporta alla pagina di accesso.",
     credTitle: "Credenziali dei servizi",
     credNote: "Chiavi e password dei servizi esterni. Si possono scrivere qui: non serve toccare il file .env, e quello che metti qui ha la precedenza su quello che c'è là dentro.",
+    llmEndpoint: "Indirizzo del servizio",
     credFromEnv: "già nel file .env", credSave: "Salva le credenziali", credSaved: "Credenziali salvate",
     credEmpty: "Svuota un campo per tornare al valore del file .env.",
     gIa: "Intelligenza artificiale", gFonti: "Fonti di offerte",
@@ -437,6 +438,7 @@ const T = {
     logout: "Sign out", logoutHelp: "Closes the session and returns to the sign-in page.",
     credTitle: "Service credentials",
     credNote: "Keys and passwords for the external services. You can type them here: no need to touch the .env file, and what you set here takes precedence over what is in there.",
+    llmEndpoint: "Service address",
     credFromEnv: "already in the .env file", credSave: "Save credentials", credSaved: "Credentials saved",
     credEmpty: "Clear a field to fall back to the value in the .env file.",
     gIa: "Artificial intelligence", gFonti: "Job sources",
@@ -3196,7 +3198,9 @@ function renderSettings() {
                 <span><b>${esc(p.label)}</b><span class="chip">${esc(p.model)}</span></span>
                 <p>${esc(p.note || "")}</p>
                 ${p.available ? "" : `<p>${t("keyFrom")} <b>${esc(p.signup || "")}</b> → ${t("intoEnv")}
-                  <code>${esc(p.env_var || "")}</code> · ${t("library")}: <code>${esc(p.install || "")}</code></p>`}
+                  <code>${esc(p.env_var || "")}</code>${p.install
+                    ? ` · ${t("library")}: <code>${esc(p.install)}</code>` : ""}</p>`}
+                ${p.base_url ? `<p>${t("llmEndpoint")}: <code>${esc(p.base_url)}</code></p>` : ""}
               </span>
               <span class="pill ${p.available ? "offer" : "discarded"}">${p.available ? t("keyPresent") : t("noKey")}</span>
             </button>`).join("")}

@@ -1603,6 +1603,16 @@ CREDENZIALI: list[dict[str, Any]] = [
     {"chiave": "anthropic_api_key", "gruppo": "ia", "etichetta": "Chiave Anthropic Claude",
      "aiuto": "Richiede un'organizzazione Console con fatturazione: platform.claude.com",
      "segreta": True},
+    {"chiave": "openai_base_url", "gruppo": "ia",
+     "etichetta": "OpenAI o modello locale — indirizzo",
+     "aiuto": "Ollama: http://localhost:11434/v1 · LM Studio: http://localhost:1234/v1 · "
+              "OpenAI: https://api.openai.com/v1. Se JobSeeker gira in un contenitore, "
+              "«localhost» e' il contenitore: usa http://host.docker.internal:11434/v1",
+     "segreta": False},
+    {"chiave": "openai_api_key", "gruppo": "ia", "etichetta": "OpenAI — chiave",
+     "aiuto": "Con un modello sul tuo computer lascia vuoto: non serve. Serve solo se "
+              "l'indirizzo sopra e' un servizio remoto",
+     "segreta": True},
 
     {"chiave": "adzuna_app_id", "gruppo": "fonti", "etichetta": "Adzuna — App ID",
      "aiuto": "Registrazione gratuita su developer.adzuna.com: da li' arrivano ID e chiave",

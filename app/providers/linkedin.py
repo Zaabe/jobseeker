@@ -38,6 +38,7 @@ from .base import (
     SearchSpec,
     html_to_text,
     looks_remote,
+    luogo_cercato,
     parse_date,
     unique_terms,
 )
@@ -54,7 +55,7 @@ log = logging.getLogger("jobseeker.providers")
 
 
 # Il ritmo. Sono i numeri che tengono questa fonte sotto la soglia di
-# attenzione di LinkedIn: non piu' di sei parole chiave, una pausa fra due
+# attenzione di LinkedIn: un tetto di parole chiave, una pausa fra due
 # richieste, un tetto di pagine per parola chiave.
 #
 # Quante pagine leggere per parola chiave a ogni giro, e come spenderle. Le
@@ -68,9 +69,20 @@ log = logging.getLogger("jobseeker.providers")
 # filtro di pertinenza scarta non finiscono in archivio e quindi risultano nuove
 # a ogni giro.
 #
-# Quattro pagine per parola chiave sono quaranta offerte a giro e ventiquattro
-# richieste nel caso peggiore, ogni mezz'ora.
-MAX_TERMINI = 6
+# ATTENZIONE ai conti, perche' qui si moltiplicano. Le richieste di un giro
+# sono `parole chiave x pagine`: con le sei parole di prima e quattro pagine
+# erano ventiquattro, con quaranta parole diventano centosessanta, cioe' undici
+# minuti di richieste continue ogni mezz'ora.
+#
+# Il tetto e' stato alzato a quaranta per una richiesta esplicita: con trenta
+# parole chiave nelle ricerche, le prime sei erano le uniche interrogate e le
+# altre non venivano usate mai - non "piu' tardi", mai, perche' la selezione
+# non ruota fra un giro e l'altro come fa il segnaposto delle pagine.
+#
+# Chi ha molte parole chiave e vede arrivare un 999 ha una manopola pronta:
+# abbassare *Pagine per giro* nella scheda della fonte. A una pagina, quaranta
+# parole costano quaranta richieste, come le sei di prima.
+MAX_TERMINI = 40
 # Il valore predefinito e il tetto. Il numero si puo' alzare dalla scheda della
 # fonte: piu' pagine per giro vuol dire percorrere l'elenco piu' in fretta e
 # fare piu' richieste: e' il compromesso di chi la usa, non una costante di
@@ -392,7 +404,15 @@ class LinkedInProvider(BaseProvider):
         ricerca.
         """
         proprio = _pulisci(str(self.config.get("location", "")))
-        paese = next((s.country for s in searches or [] if s.country), "")
+        # Il paese si ricava dalla localita' delle ricerche: il campo "Paese"
+        # non esiste piu' nell'interfaccia. Finche' lo si leggeva li', una
+        # ricerca su "Milano" arrivava a LinkedIn come "Milano" senza paese -
+        # cioe' esattamente il caso che questo metodo esiste per evitare, e che
+        # LinkedIn risolve mostrando annunci di New York. LinkedIn accetta un
+        # luogo solo, quindi con piu' paesi in ballo se ne prende uno, in modo
+        # deterministico; se la localita' nomina gia' il suo, decide quello.
+        isos, _ = luogo_cercato(searches)
+        paese = next(iter(sorted(isos)), "")
         if proprio:
             return paesi.in_inglese(proprio, paese)
         scritto = next((s.location for s in searches or [] if s.location), "")
@@ -529,6 +549,10 @@ class LinkedInProvider(BaseProvider):
         mai viste; senza, legge il numero di pagine che gli e' stato dato. In
         entrambi i casi si ferma se l'elenco finisce o se LinkedIn ripete la
         stessa pagina.
+
+        "L'elenco finisce" va confermato: una pagina vuota viene richiesta una
+        seconda volta prima di crederle, perche' questo endpoint ne restituisce
+        anche a meta' elenco.
         """
         esito = {"fine": inizio, "nuove": 0, "pagine": 0, "esaurito": False}
         precedente: set[str] = set()
@@ -547,6 +571,30 @@ class LinkedInProvider(BaseProvider):
 
             offerte = self._leggi_elenco(await self._pagina(self.RICERCA, params))
             esito["pagine"] += 1
+            if not offerte and not self.anteprima:
+                # Una pagina vuota non dice per forza che l'elenco e' finito.
+                # Questo endpoint la restituisce anche in mezzo ai risultati -
+                # HTTP 200 con un <li> vuoto di 26 byte - e a qualche minuto di
+                # distanza lo stesso `start` torna a dare dieci schede: misurato
+                # 500 e 520 vuoti mentre da 540 a 600 c'erano dieci offerte per
+                # pagina, e poco prima esattamente il contrario.
+                #
+                # Prenderla per buona costava il segnaposto: il vuoto diventava
+                # `esaurito`, il cursore tornava a zero (vedi `_sfoglia`) e la
+                # passata in profondita' ripartiva sempre da sotto la cima, cosi'
+                # il tratto piu' in basso dell'elenco non si raggiungeva mai.
+                # Una seconda richiesta distingue i due casi, e costa una
+                # richiesta sola, soltanto quando la pagina torna vuota.
+                #
+                # In anteprima no: quella non tocca i cursori, e davanti allo
+                # schermo c'e' qualcuno che aspetta.
+                await self._pausa()
+                offerte = self._leggi_elenco(await self._pagina(self.RICERCA, params))
+                esito["pagine"] += 1
+                if offerte:
+                    log.info("LinkedIn: pagina vuota a start=%d per %r, al secondo "
+                             "tentativo %d schede", esito["fine"],
+                             termine or "(senza parole chiave)", len(offerte))
             if not offerte:
                 esito["esaurito"] = True
                 if not pagina and not inizio:

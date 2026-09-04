@@ -7,6 +7,7 @@ della fonte da cui l'offerta arriva.
 from __future__ import annotations
 
 import html
+import logging
 import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -14,6 +15,11 @@ from html.parser import HTMLParser
 from typing import Any, ClassVar
 
 import httpx
+
+from .. import paesi
+
+
+log = logging.getLogger("jobseeker.providers")
 
 
 # --------------------------------------------------------------------------
@@ -157,8 +163,15 @@ class JobPosting:
 
 
 # Quante parole chiave inoltrare al massimo alle API che filtrano lato server.
-# Ogni termine costa una richiesta, quindi il numero va tenuto basso.
-MAX_QUERY_TERMS = 6
+# Ogni termine costa almeno una richiesta, quindi un tetto ci vuole: senza, un
+# dizionario da trecento voci diventa trecento richieste per fonte a ogni giro.
+#
+# Il tetto si conta sull'insieme unico di tutte le ricerche, non su ciascuna:
+# lo applica `unique_terms`. Prima era per ricerca, e la conseguenza era che lo
+# stesso gruppo di parole costava sei richieste se stava in una ricerca sola e
+# trenta se era diviso in cinque - il traffico dipendeva da come le parole
+# erano raggruppate, che non e' una cosa che chi le scrive abbia in mente.
+MAX_QUERY_TERMS = 40
 
 
 @dataclass
@@ -197,9 +210,16 @@ class SearchSpec:
         termine, e i risultati si uniscono a valle.
 
         La lista vuota diventa `[""]`, cioe' una passata senza filtro testuale.
+
+        Qui non si taglia niente: il tetto lo applicano `unique_terms` e
+        `coppie_ricerca_termine`, che sono i due modi in cui le fonti
+        consumano i termini. Tagliare anche qui sembrava prudenza e invece era
+        un tranello: con tutte le parole in una ricerca sola il taglio avveniva
+        qui, cioe' prima di arrivare al punto che lo segnala nei log, e chi
+        aveva scritto sessanta parole chiave non vedeva niente.
         """
         terms = [k.strip() for k in self.keywords if k and k.strip()]
-        return terms[:MAX_QUERY_TERMS] or [""]
+        return terms or [""]
 
 
 def unique_terms(searches: list[SearchSpec]) -> list[str]:
@@ -214,7 +234,76 @@ def unique_terms(searches: list[SearchSpec]) -> list[str]:
         for term in spec.query_terms:
             if term not in termini:
                 termini.append(term)
-    return termini or [""]
+    return _col_tetto(termini) or [""]
+
+
+def _col_tetto(voci: list[Any]) -> list[Any]:
+    """Applica il tetto, e lo dice.
+
+    Restare zitti significa che chi ha scritto sessanta parole chiave crede
+    che vengano cercate tutte.
+    """
+    if len(voci) <= MAX_QUERY_TERMS:
+        return voci
+    log.info("%d parole chiave nelle ricerche, uso le prime %d: oltre quel "
+             "numero le richieste crescono piu' dei risultati",
+             len(voci), MAX_QUERY_TERMS)
+    return voci[:MAX_QUERY_TERMS]
+
+
+def coppie_ricerca_termine(searches: list[SearchSpec]) -> list[tuple[SearchSpec, str]]:
+    """Le coppie (ricerca, termine) da interrogare, col tetto contato in totale.
+
+    Serve a chi non puo' lavorare sull'insieme unico dei termini, perche' ogni
+    ricerca porta anche parametri suoi: Adzuna manda la localita' e le
+    esclusioni della singola ricerca, quindi la stessa parola chiave in due
+    ricerche diverse e' davvero una richiesta diversa e non un doppione.
+
+    Il tetto e' lo stesso di `unique_terms`, cosi' il numero di richieste per
+    giro non dipende da quale fonte lo sta consumando.
+    """
+    coppie: list[tuple[SearchSpec, str]] = []
+    for spec in searches or [SearchSpec()]:
+        for term in spec.query_terms:
+            coppie.append((spec, term))
+    return _col_tetto(coppie)
+
+
+def luogo_cercato(searches: list[SearchSpec]) -> tuple[set[str], list[str]]:
+    """I paesi e i luoghi chiesti dalle ricerche, letti dalla localita'.
+
+    La localita' e' testo libero e puo' essere un paese ("Italia"), una regione
+    ("Lombardia"), una citta' ("Roma") o una combinazione di questi ("Milano -
+    Lombardia, Italia"). Il paese, quando c'e', si restituisce a parte: e' il
+    solo filtro che tutti i portali sappiano applicare, e quasi tutti lo
+    vogliono come codice a due lettere.
+
+    Prima ogni adapter leggeva `spec.country` per conto proprio, e cioe' due
+    cose sbagliate. La prima: quel campo non esiste piu' nell'interfaccia,
+    quindi una ricerca su "Milano" non aveva alcun paese e il portale veniva
+    interrogato senza filtro geografico - si scaricavano offerte da tutto il
+    mondo per poi buttarle a valle. La seconda: si prendeva il paese della
+    *prima* ricerca che ne avesse uno, e le altre non contavano niente.
+    """
+    isos: set[str] = set()
+    luoghi: list[str] = []
+    for spec in searches or []:
+        sede = (spec.location or "").strip()
+        # Il campo scritto ha la precedenza, per le ricerche salvate quando
+        # esisteva; poi si guarda la coda della localita' ("Milano, Italia") e
+        # infine un paese nominato in mezzo al testo.
+        iso = ((spec.country or "").strip().lower()
+               or paesi.codice_dalla_sede(sede)
+               or paesi.paese_nel_testo(sede))
+        if iso:
+            isos.add(iso)
+        for pezzo in paesi.segmenti(sede):
+            # Il paese l'ha gia' preso la riga qui sopra: lasciarlo anche fra i
+            # luoghi lo trasformerebbe in una sede da cercare.
+            if paesi.codice(pezzo) or pezzo in luoghi:
+                continue
+            luoghi.append(pezzo)
+    return isos, luoghi
 
 
 class ProviderError(RuntimeError):

@@ -44,6 +44,17 @@ services:
       # Livello semantico opzionale
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      # Modello locale o servizio compatibile OpenAI: l'indirizzo e, se serve,
+      # la chiave. Vedi `extra_hosts` qui sotto per il caso piu' comune.
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+    # Per raggiungere un modello che gira sul computer che ospita il
+    # contenitore. Dentro il contenitore "localhost" e' il contenitore stesso,
+    # quindi un Ollama sull'host non si vede: con questa riga lo si raggiunge
+    # all'indirizzo  http://host.docker.internal:11434/v1  anche su Linux, dove
+    # quel nome non esisterebbe (su Mac e Windows c'e' gia').
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - jobseeker-data:/app/data
     ports:
