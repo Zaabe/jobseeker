@@ -361,6 +361,83 @@ def _call_claude(prompt: str, model: str, system: str, schema: type[BaseModel],
 # stava arrivando.
 TIMEOUT_COMPATIBILE = 180.0
 
+# Un modello che ragiona prima di rispondere spende token nel ragionamento, e
+# con un tetto basso li finisce prima di arrivare alla risposta: il servizio
+# restituisce allora un 200 con il contenuto vuoto, che e' esattamente cio' che
+# si vedeva. Il tetto e' un limite, non una spesa - un modello che non ragiona
+# si ferma quando ha finito - quindi alzarlo non costa niente a chi non ne ha
+# bisogno e salva gli altri. Il collaudo del pulsante *Prova* ne chiede 600:
+# per un modello che ragiona non basterebbero a scrivere una parola.
+TETTO_MINIMO = 4096
+
+
+def _contenuto(scelta: dict[str, Any]) -> str:
+    """Il testo della risposta, da dove il server ha deciso di metterlo.
+
+    `content` e' il posto giusto, ma i server che servono modelli capaci di
+    ragionare ne usano altri: llama.cpp avviato con `--reasoning-format` e i
+    modelli in stile DeepSeek scrivono in `reasoning_content`, altre build in
+    `reasoning`. Quando il modello ha soltanto ragionato, `content` resta vuoto
+    e la risposta, se c'e', sta nell'altro campo: guardarli tutti costa tre
+    righe e recupera una risposta che era arrivata.
+    """
+    messaggio = scelta.get("message") or {}
+    grezzi = []
+    for campo in ("content", "reasoning_content", "reasoning"):
+        valore = messaggio.get(campo)
+        if isinstance(valore, str) and valore:
+            if valore.strip():
+                return valore
+            grezzi.append(valore)
+    # Niente di leggibile, ma qualcosa era stato scritto: solo spazi e a capo.
+    # Non e' la stessa cosa di una risposta assente, e chi chiama lo distingue
+    # dalla lunghezza (vedi `_perche_vuota`).
+    return grezzi[0] if grezzi else ""
+
+
+def _perche_vuota(finish_reason: str, model: str, tetto: int,
+                  uso: dict[str, Any] | None, bianco: bool = False) -> str:
+    """Perche' il servizio ha risposto senza dire niente.
+
+    Senza questo si vedeva un errore di validazione JSON su una stringa vuota,
+    che e' vero ma non aiuta: dice che il JSON manca, non perche'.
+
+    `finish_reason` "length" ha due cause opposte, e distinguerle e' il punto:
+    il conto dei token generati sta in `usage`, e dice se il modello ha scritto
+    fino al tetto senza concludere - allora ha ragionato per tutto il tempo - o
+    se non ha scritto praticamente niente, e allora nella finestra di contesto
+    non c'era spazio per la risposta. I due rimedi non si somigliano: nel primo
+    caso si spegne il ragionamento, nel secondo si allarga la finestra.
+    """
+    conti = uso or {}
+    generati = int(conti.get("completion_tokens") or 0)
+    del_prompt = int(conti.get("prompt_tokens") or 0)
+    # I conti stanno in testa al messaggio, non in coda: sono la prova di
+    # quale delle due cause sia, e chi legge vede prima quelli del rimedio.
+    misura = (f"prompt {del_prompt} token, generati {generati}, tetto {tetto}"
+              if conti else f"tetto {tetto}")
+
+    if finish_reason == "length" and generati >= max(1, int(tetto * 0.6)):
+        # Ha generato molto e prodotto niente di leggibile. Due cause, e la
+        # seconda l'ha svelata un caso reale: una finestra di contesto da 53k,
+        # dove la spiegazione della capienza non regge piu'.
+        causa = ("ha scritto solo spazi e a capo" if bianco else
+                 "ha scritto fino al tetto senza concludere")
+        return (f"risposta vuota ({misura}): {causa}. Puo' essere lo schema "
+                f"vincolante - il servizio lo traduce in una grammatica, e se «{model}» "
+                "non riesce a soddisfarla resta a produrre riempimento fino al tetto - "
+                "oppure un modello che ragiona e spende tutto il budget a pensare. "
+                "Nel primo caso il tentativo successivo, senza schema vincolante, "
+                "risolve da solo; nel secondo va spento il ragionamento nel servizio.")
+    if finish_reason == "length":
+        return (f"risposta vuota ({misura}): si e' fermato senza scrivere niente, "
+                f"quindi nella finestra di contesto di «{model}» non c'era spazio "
+                "per la risposta dopo la richiesta. Allarga la finestra e riavvia il "
+                "servizio: Ollama con OLLAMA_CONTEXT_LENGTH=16384 o num_ctx nel "
+                "Modelfile, llama.cpp e Unsloth con --ctx-size 16384.")
+    return (f"risposta vuota ({misura}), finish_reason={finish_reason or 'assente'}: "
+            f"controlla che «{model}» sia davvero caricato e sappia rispondere.")
+
 
 def _json_dal_testo(testo: str) -> str:
     """Il primo oggetto JSON dentro una risposta, ignorando cio' che lo circonda.
@@ -397,6 +474,25 @@ def _json_dal_testo(testo: str) -> str:
     return testo[inizio:]
 
 
+def _messaggi(system: str, prompt: str, unito: bool) -> list[dict[str, str]]:
+    """I messaggi della richiesta, col sistema separato o unito al turno utente.
+
+    Non tutti i modelli hanno un turno di sistema. Gemma, nel suo template, ha
+    soltanto `user` e `model`: quando gli arriva un messaggio con `role:
+    "system"` il server deve arrangiarsi, e a seconda della versione lo unisce
+    da solo, lo scarta o costruisce un prompt malformato - e un prompt
+    malformato e' una delle strade per cui un modello non risponde niente.
+
+    Infilarlo nel turno dell'utente e' la forma che tutti accettano, ed e' il
+    motivo per cui la stessa richiesta incollata a mano in una chat funziona
+    mentre quella del programma no: a mano il sistema finisce li' dentro.
+    """
+    if unito:
+        return [{"role": "user", "content": f"{system}\n\n{prompt}"}]
+    return [{"role": "system", "content": system},
+            {"role": "user", "content": prompt}]
+
+
 def _call_openai(prompt: str, model: str, system: str, schema: type[BaseModel],
                  max_tokens: int) -> BaseModel:
     """Interroga un servizio con API compatibile OpenAI.
@@ -430,29 +526,43 @@ def _call_openai(prompt: str, model: str, system: str, schema: type[BaseModel],
         "senza testo prima o dopo e senza blocchi markdown:\n"
         + json.dumps(schema_json, ensure_ascii=False)
     )
-    forme = [
-        {"type": "json_schema", "json_schema": {"name": "risposta", "schema": schema_json}},
-        {"type": "json_object"},
-        None,
+    # I tentativi, dal piu' stretto al piu' tollerante: (formato, sistema unito
+    # al turno utente). Gli ultimi due cambiano cose diverse - il terzo toglie
+    # ogni vincolo sul formato, il quarto sposta il messaggio di sistema - e
+    # servono a due guasti diversi, quindi restano separati.
+    tentativi: list[tuple[dict[str, Any] | None, bool]] = [
+        ({"type": "json_schema",
+          "json_schema": {"name": "risposta", "schema": schema_json}}, False),
+        ({"type": "json_object"}, False),
+        (None, False),
+        (None, True),
     ]
 
     ultimo_errore = ""
     tetto = "max_tokens"
-    for forma in forme:
+    tetto_valore = max(max_tokens, TETTO_MINIMO)
+    indice = 0
+    while indice < len(tentativi):
+        forma, sistema_unito = tentativi[indice]
+        indice += 1
         # Lo schema si scrive anche nel testo quando non lo vincola il server:
         # e' l'unica indicazione che il modello ha su cosa scrivere.
         vincolato = bool(forma) and forma["type"] == "json_schema"
         corpo: dict[str, Any] = {
             "model": model,
-            "messages": [
-                {"role": "system", "content": system if vincolato else system + promemoria},
-                {"role": "user", "content": prompt},
-            ],
-            # Un giudizio deve essere ripetibile: la stessa offerta e lo stesso
-            # curriculum non possono dare due punteggi diversi.
-            "temperature": 0,
-            tetto: max_tokens,
+            "messages": _messaggi(system if vincolato else system + promemoria,
+                                  prompt, sistema_unito),
+            tetto: tetto_valore,
         }
+        # La temperatura non si tocca. Mandare `temperature: 0` rendeva il
+        # giudizio ripetibile, che era il motivo per cui c'era, ma i modelli
+        # quantizzati che si fanno girare in casa arrivano con i parametri di
+        # campionamento consigliati da chi li pubblica - per i GGUF di Gemma,
+        # Unsloth indica una temperatura vicina a 1 - e a zero il campionamento
+        # e' disattivato del tutto, che su quei modelli e' una via nota verso
+        # le risposte degeneri o vuote. Meglio un giudizio che varia di qualche
+        # punto che nessun giudizio: chi vuole i propri valori li imposta nel
+        # servizio, dove valgono per tutto.
         if forma:
             corpo["response_format"] = forma
 
@@ -465,7 +575,7 @@ def _call_openai(prompt: str, model: str, system: str, schema: type[BaseModel],
             if tetto == "max_tokens" and "max_completion_tokens" in dettaglio:
                 tetto = "max_completion_tokens"
                 corpo.pop("max_tokens", None)
-                corpo[tetto] = max_tokens
+                corpo[tetto] = tetto_valore
                 risposta = _posta_compatibile(base, intestazioni, corpo)
             if risposta.status_code == 400:
                 # Il server non conosce questa forma di risposta strutturata:
@@ -484,17 +594,59 @@ def _call_openai(prompt: str, model: str, system: str, schema: type[BaseModel],
 
         try:
             dati = risposta.json()
-            testo = dati["choices"][0]["message"]["content"] or ""
-        except (ValueError, KeyError, IndexError, TypeError) as exc:
+            scelta = (dati.get("choices") or [{}])[0]
+        except (ValueError, IndexError, TypeError) as exc:
             ultimo_errore = f"risposta illeggibile ({type(exc).__name__})"
+            continue
+
+        motivo = str(scelta.get("finish_reason") or "")
+        grezzo = _contenuto(scelta)
+        testo = grezzo.strip()
+        if not testo:
+            conti = dati.get("usage") or {}
+            generati = int(conti.get("completion_tokens") or 0)
+            ultimo_errore = _perche_vuota(motivo, model, tetto_valore, conti,
+                                          bianco=bool(grezzo))
+            # Il numero di token generati dice quale muro si ha davanti, ed e'
+            # l'unica cosa che li distingue.
+            #
+            # Generati fino al tetto: ha scritto molto senza produrre niente di
+            # leggibile, e il sospetto e' lo schema vincolante. Si scende di un
+            # gradino, che e' esattamente il caso in cui la negoziazione serve.
+            #
+            # Generati quasi zero: non ha avuto modo di scrivere, e cambiare il
+            # formato della risposta non cambia niente - le forme intermedie
+            # sbatterebbero sullo stesso muro, piu' lentamente. Resta una cosa
+            # sola che vale la pena provare, e non riguarda il formato: mettere
+            # il sistema nel turno utente, per i modelli che non hanno un turno
+            # di sistema. Si salta direttamente a quella.
+            if motivo == "length" and generati < max(1, int(tetto_valore * 0.6)):
+                if sistema_unito:
+                    break
+                indice = len(tentativi) - 1
             continue
         try:
             return schema.model_validate_json(_json_dal_testo(testo))
         except Exception as exc:
-            # Con lo schema vincolante una risposta non conforme non e' colpa
-            # del modello ma del server che non lo vincola davvero: vale la
-            # pena riprovare col modo successivo.
-            ultimo_errore = f"{type(exc).__name__}: {str(exc)[:160]}"
+            if motivo == "length":
+                # Anche il JSON tagliato a metà e' una questione di capienza,
+                # non di formato: riprovare non lo accorcerebbe.
+                conti = dati.get("usage") or {}
+                ultimo_errore = (
+                    f"risposta troncata (prompt {conti.get('prompt_tokens')} token, "
+                    f"generati {conti.get('completion_tokens')}, tetto {tetto_valore}): "
+                    "i token sono finiti prima della fine del JSON. Se il modello "
+                    "ragiona spegni il ragionamento, altrimenti allarga la finestra "
+                    "di contesto del servizio."
+                    if conti else
+                    f"risposta troncata (tetto {tetto_valore}): i token sono finiti "
+                    "prima della fine del JSON.")
+                break
+            else:
+                # Con lo schema vincolante una risposta non conforme non e'
+                # colpa del modello ma del server che non lo vincola davvero:
+                # vale la pena riprovare col modo successivo.
+                ultimo_errore = f"{type(exc).__name__}: {str(exc)[:160]}"
             continue
 
     raise RuntimeError(ultimo_errore or "nessuna risposta utilizzabile dal servizio")
@@ -542,7 +694,7 @@ def _chiedi(provider: str, model: str, system: str, prompt: str,
                        system, schema, max_tokens)
     except Exception as exc:
         log.warning("richiesta al modello fallita (%s): %s: %s",
-                    provider, type(exc).__name__, str(exc)[:180])
+                    provider, type(exc).__name__, str(exc)[:400])
         return None
 
 
@@ -812,7 +964,7 @@ def prova(provider: str = DEFAULT_PROVIDER, model: str = "") -> tuple[bool, str]
         verdetto = backend(build_prompt(_FintaOfferta(), _FintoProfilo()),
                            nome_modello, SYSTEM, LlmVerdict, 600)
     except Exception as exc:
-        return False, f"{type(exc).__name__}: {str(exc)[:220]}"
+        return False, f"{type(exc).__name__}: {str(exc)[:500]}"
     if not isinstance(verdetto, LlmVerdict):
         return False, "risposta non conforme allo schema"
     return True, f"{provider_info(provider)['label']} ha risposto con {nome_modello}"
